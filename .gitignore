@@ -1,0 +1,29 @@
+# macOS
+.DS_Store
+*.swp
+*~
+
+# Xcode
+Archiver.xcodeproj/
+Archiver.xcworkspace/
+xcuserdata/
+DerivedData/
+build/
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
+
+# Swift Package Manager
+.build/
+Packages/
+
+# App local data
+Archiver/data/
+Archiver/media/
+Archiver/cache/
+Archiver/exports/

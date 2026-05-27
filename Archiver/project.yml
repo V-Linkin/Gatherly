@@ -1,0 +1,41 @@
+name: Archiver
+options:
+  bundleIdPrefix: com.archiver
+  deploymentTarget:
+    macOS: "14.0"
+  xcodeVersion: "16.0"
+  generateEmptyDirectories: true
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+    PRODUCT_NAME: Archiver
+    INFOPLIST_FILE: Info.plist
+    CODE_SIGN_STYLE: Automatic
+    ENABLE_HARDENED_RUNTIME: YES
+
+targets:
+  Archiver:
+    type: application
+    platform: macOS
+    sources:
+      - path: .
+        excludes:
+          - project.yml
+          - Archiver.xcodeproj
+          - Archiver.xcworkspace
+          - ".DS_Store"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.archiver.app
+        INFOPLIST_FILE: Info.plist
+    dependencies:
+      - package: GRDB
+    scheme:
+      testTargets: []
+
+packages:
+  GRDB:
+    url: https://github.com/groue/GRDB.swift.git
+    from: "7.0.0"
