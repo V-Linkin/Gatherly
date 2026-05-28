@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="Archiver/Assets.xcassets/AppIcon.appiconset/icon_256x256.png" width="128" alt="拾屿 Logo">
+  <img src="icon.png" width="128" alt="拾屿 Logo">
 </p>
 
 <h1 align="center">拾屿 Archiver</h1>
