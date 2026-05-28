@@ -29,6 +29,7 @@ struct ContentView: View {
     @State private var selectedNav: NavigationTarget? = .home
     @State private var previousNav: NavigationTarget? = .home
     @State private var zoomedImage: NSImage?
+
     
     var body: some View {
         @Bindable var state = appState
@@ -63,6 +64,9 @@ struct ContentView: View {
             imageZoomOverlay
         }
         .onAppear { appState.refreshData() }
+        .sheet(isPresented: $state.showNewItem) {
+            NewItemView(isPresented: $state.showNewItem, selectedNav: $selectedNav)
+        }
     }
     
     private var backButton: some View {

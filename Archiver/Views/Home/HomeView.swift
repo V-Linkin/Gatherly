@@ -12,6 +12,23 @@ struct HomeView: View {
                 // 粘贴并保存输入区
                 PasteInputView()
                 
+                // 新建内容按钮
+                HStack {
+                    Button {
+                        appState.showNewItem = true
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "plus.circle.fill")
+                            Text("新建内容")
+                        }
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.regular)
+                    Spacer()
+                }
+                
                 Divider()
                 
                 // 最近导入

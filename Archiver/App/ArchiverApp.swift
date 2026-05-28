@@ -41,6 +41,9 @@ final class AppState {
     /// 搜索结果
     var searchResults: [SearchResult] = []
     
+    /// 新建内容弹窗
+    var showNewItem = false
+    
     /// Toast 消息
     var toastMessage: String?
     var showToast = false
