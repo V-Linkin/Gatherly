@@ -22,6 +22,9 @@ struct URLNormalizer {
         if lower.contains("github.com") {
             return .github
         }
+        if lower.contains("youtube.com") || lower.contains("youtu.be") {
+            return .youtube
+        }
         
         return nil
     }
@@ -39,6 +42,8 @@ struct URLNormalizer {
             return normalizeBilibili(urlString)
         case .github:
             return normalizeGitHub(urlString)
+        case .youtube:
+            return normalizeYouTube(urlString)
         case .custom:
             return urlString
         }
@@ -57,6 +62,8 @@ struct URLNormalizer {
             return extractBilibiliID(urlString)
         case .github:
             return extractGitHubID(urlString)
+        case .youtube:
+            return extractYouTubeID(urlString)
         case .custom:
             return nil
         }
@@ -142,6 +149,27 @@ struct URLNormalizer {
     private static func extractGitHubID(_ url: String) -> String? {
         let patterns = [
             "github\\.com/([a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+)"
+        ]
+        return extractFirstMatch(url, patterns: patterns)
+    }
+    
+    // MARK: - YouTube
+    
+    private static func normalizeYouTube(_ url: String) -> String {
+        if let id = extractYouTubeID(url) {
+            return "youtube://video/\(id)"
+        }
+        return url
+    }
+    
+    static func extractYouTubeID(_ url: String) -> String? {
+        let patterns = [
+            "youtube\\.com/watch\\?v=([a-zA-Z0-9_-]{11})",
+            "youtu\\.be/([a-zA-Z0-9_-]{11})",
+            "youtube\\.com/embed/([a-zA-Z0-9_-]{11})",
+            "youtube\\.com/shorts/([a-zA-Z0-9_-]{11})",
+            "youtube\\.com/channel/([a-zA-Z0-9_-]+)",
+            "youtube\\.com/@([a-zA-Z0-9._-]+)"
         ]
         return extractFirstMatch(url, patterns: patterns)
     }

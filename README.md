@@ -30,7 +30,7 @@
 
 复制任意链接，粘贴即可保存。自动识别平台并解析内容。
 
-**支持平台：** 抖音 · 小红书 · 酷安 · B站 · GitHub
+**支持平台：** 抖音 · 小红书 · 酷安 · B站 · GitHub · YouTube
 
 ### 🖼️ 内容归档
 
@@ -100,7 +100,7 @@ App/                    应用入口 + 全局状态 + 导航
 Models/                 数据模型
   └── Enums/            枚举定义（平台/状态/类型）
 Database/               数据库层（GRDB + FTS5）
-Parsers/                平台解析器（协议 + 5个实现）
+Parsers/                平台解析器（协议 + 6个实现）
 Services/               导入/备份/更新服务
 Utilities/              工具类（URL 标准化等）
 Views/                  UI 层
