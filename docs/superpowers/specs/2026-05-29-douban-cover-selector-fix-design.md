@@ -38,62 +38,53 @@ var coverEl = document.querySelector('.subject-cover img')
 - `.main-bd img` 匹配到影评正文中的图片，不是封面
 - 需要从 `data-image` 属性或 `.subject-img img` 获取封面
 
-## 修复方案
+## 修复方案（已实施）
 
-### 方案 A：修改 JS 选择器（推荐）
+### JS 选择器（ZhihuWebLoader.swift）
 
-更新 `ZhihuWebLoader.swift` 中的豆瓣封面提取逻辑：
+优先级：`.subject-img img` → `.subject-poster img` → `.poster img` → `[data-image]` → `og:image`
 
 ```javascript
-// 提取封面 - 优先从 data-image 属性获取
-var coverEl = document.querySelector('[data-image]');
-if (coverEl) {
-    doubanResult.cover = coverEl.getAttribute('data-image');
+var _posterEl = document.querySelector('.subject-img img')
+    || document.querySelector('.subject-poster img')
+    || document.querySelector('.poster img')
+    || document.querySelector('[data-image]');
+if (_posterEl && _posterEl.src && _posterEl.src.indexOf('doubanio.com') !== -1) {
+    doubanResult.cover = _posterEl.src;
+} else if (_posterEl && _posterEl.getAttribute && _posterEl.getAttribute('data-image')) {
+    doubanResult.cover = _posterEl.getAttribute('data-image');
 } else {
-    // 兜底：从 subject-img 获取书籍封面
-    var subjectImgEl = document.querySelector('.subject-img img');
-    if (subjectImgEl) {
-        doubanResult.cover = subjectImgEl.src;
-    } else {
-        // 再兜底：从 og:image 获取
-        var ogImage = document.querySelector('meta[property="og:image"]');
-        doubanResult.cover = ogImage ? ogImage.content : '';
-    }
+    var _ogImg = document.querySelector('meta[property="og:image"]');
+    doubanResult.cover = (_ogImg && _ogImg.content) ? _ogImg.content : '';
 }
 ```
 
-### 方案 B：从 HTML 直接提取 meta 信息
+### Swift 兜底（DoubanParser.swift）
 
-在 `DoubanParser.swift` 的 `parseReviewPage` 方法中，优先从 `og:image` meta 标签获取封面：
+当 review 页面的封面为影评头图（URL 含 `thing_review`）或为空时，从 subject 页面获取 `og:image`：
 
 ```swift
-// meta 标签获取基本信息
-let metaCover = extractMeta(html, property: "og:image")
-
-// 组装封面：优先 webview 提取，兜底 meta
-let cover = webResult.cover ?? metaCover
+let needSubjectCover = (cover == nil) || (cover?.contains("thing_review") == true)
+if needSubjectCover, let subjectID = extractSubjectID(from: url) {
+    let subjectURL = URL(string: "https://movie.douban.com/subject/\(subjectID)/") ?? url
+    // 用桌面 UA 请求，获取 og:image
+}
 ```
 
-当前代码已经实现了这个逻辑，但 `og:image` 在移动端返回的是豆瓣 logo。
+## 实施步骤（已完成）
 
-## 实施步骤
-
-1. **修改 `ZhihuWebLoader.swift`**：
-   - 更新 JS 选择器，优先从 `data-image` 属性获取封面
-   - 添加 `.subject-img img` 作为兜底
-   - 保留 `og:image` 作为最后兜底
-
-2. **测试验证**：
-   - 使用豆瓣影评 URL 测试封面提取
-   - 验证桌面端和移动端页面都能正确获取封面
+1. ✅ 修改 `ZhihuWebLoader.swift` JS 选择器
+2. ✅ 修改 `DoubanParser.swift` 增加 subject 页面兜底
+3. ✅ 测试验证封面提取
 
 ## 成功标准
 
-1. 豆瓣影评页面能正确获取封面图片
-2. 封面图片 URL 有效且可下载
-3. 不影响其他平台的解析功能
+1. ✅ 豆瓣影评页面能正确获取电影/书籍海报
+2. ✅ 封面图片 URL 有效且可下载
+3. ✅ 不影响其他平台的解析功能
+4. ⬜ 正文图片提取（待实现）
 
 ## 影响范围
 
-- `Utilities/ZhihuWebLoader.swift`：修改 JS 选择器
-- `Parsers/DoubanParser.swift`：无需修改（已有兜底逻辑）
+- `Utilities/ZhihuWebLoader.swift`：JS 封面选择器
+- `Parsers/DoubanParser.swift`：Swift 层 subject 页面兜底
