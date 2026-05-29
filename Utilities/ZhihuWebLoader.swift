@@ -161,9 +161,21 @@ final class ZhihuWebLoader: NSObject, WKNavigationDelegate {
                             }
                         }
                     }
-                    // 提取封面
-                    var coverEl = document.querySelector('.subject-cover img') || document.querySelector('.main-bd img') || document.querySelector('[class*="cover"] img');
-                    doubanResult.cover = coverEl ? coverEl.src : '';
+                    // 优先从 data-image 属性获取影评封面
+                    var coverDataEl = document.querySelector('[data-image]');
+                    if (coverDataEl) {
+                        doubanResult.cover = coverDataEl.getAttribute('data-image') || '';
+                    } else {
+                        // 兜底：从 subject-img 获取书籍封面
+                        var subjectImgEl = document.querySelector('.subject-img img');
+                        if (subjectImgEl) {
+                            doubanResult.cover = subjectImgEl.src;
+                        } else {
+                            // 再兜底：从 og:image 获取
+                            var ogImage = document.querySelector('meta[property="og:image"]');
+                            doubanResult.cover = ogImage ? ogImage.content : '';
+                        }
+                    }
 
                     if (doubanResult.text.length > 30) {
                         return 'DOUBAN_JSON:' + JSON.stringify(doubanResult);
