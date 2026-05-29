@@ -15,6 +15,12 @@ xcodegen generate
 xcodebuild build -project Archiver.xcodeproj -scheme Archiver -destination 'platform=macOS'
 ```
 
+一键打包+上传 Release：
+
+```bash
+./scripts/build_release.sh [version]    # 不传版本号则自动读取 Info.plist
+```
+
 ## 项目结构
 
 ```
@@ -23,7 +29,7 @@ Models/                 数据模型 + 枚举
 Database/               GRDB 数据库层 + Repos
 Parsers/                平台解析器 (BaseParser 基类 + 10个实现)
 Services/               导入/备份/更新服务
-Utilities/              工具类 (BrowserDetector, URLNormalizer 等)
+Utilities/              工具类 (BrowserDetector, URLNormalizer, ZhihuWebLoader 等)
 Views/                  SwiftUI 视图层
   ├── Home/             首页
   ├── Platform/         平台分类 + 文件夹
@@ -32,6 +38,9 @@ Views/                  SwiftUI 视图层
   ├── Trash/            回收站
   ├── Settings/         设置
   └── Components/       通用组件
+Tests/                  单元测试
+scripts/                打包/发布脚本
+docs/                   产品规格 + 设计文档
 ```
 
 ## 关键约定
@@ -41,6 +50,7 @@ Views/                  SwiftUI 视图层
 - **@MainActor**: `BrowserDetector.shared` 和 `ImportService.shared` 需要 `@MainActor` 注解 (Swift 6 并发安全)
 - **XcodeGen**: 不要直接编辑 `.xcodeproj`，修改 `project.yml` 后运行 `xcodegen generate`
 - **UserDefaults**: 浏览器选择存储在 `selectedBrowserBundleIdentifier` 键
+- **DMG 命名**: 使用 `build_release.sh` 脚本打包，文件名固定为 `Archiver_v{version}.dmg`（英文名，避免中文丢失）
 
 ## 支持平台
 
@@ -56,6 +66,6 @@ Views/                  SwiftUI 视图层
 
 ## 已知问题（待修复）
 
-1. **豆瓣影评封面未获取** — `DoubanParser` 的 webview JS 选择器 `.subject-cover img` / `.main-bd img` 未匹配到豆瓣影评页面的实际 DOM，需要检查页面结构后修正选择器
-2. **豆瓣影评正文图片丢失** — 当前正文提取只取 `<p>` 标签的 `innerText`，图片 `<img>` 被忽略。需要在提取正文时同时收集 `<img src>` 并以 Markdown 图片语法嵌入正文
-3. **微博链接解析失败** — `WeiboParser` 无法从某些微博链接提取微博 ID，可能是 URL 格式匹配规则不完整（如短链 `t.cn` 或带参数的 `m.weibo.cn` 链接）
+1. **酷安网页版反爬严格** — `CoolapkParser` 通过 HTTP 请求获取的页面不包含实际内容（返回"请用酷安APP扫码"提示页），`__INITIAL_STATE__` 和 OG tags 均不存在。当前仅能提取基础 meta 信息。需要 WKWebView 或 Playwright 等方案才能获取完整内容。
+2. **微博短链解析失败** — `WeiboParser` 的 `extractWeiboID` 仅匹配 `weibo.com/status/`、`m.weibo.cn/detail/`、`m.weibo.cn/status/` 三种格式，不支持 `t.cn` 短链和 `weibo.com/u/UID/status/ID` 格式。
+3. **豆瓣影评封面/图片不完整** — `DoubanParser` 的影评页面使用 WKWebView 加载，但 JS 选择器可能未匹配到实际 DOM 结构，封面和正文图片提取不稳定。
