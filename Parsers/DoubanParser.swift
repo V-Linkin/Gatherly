@@ -132,6 +132,7 @@ final class DoubanParser: ContentParser, @unchecked Sendable {
 
         // 用 WKWebView 加载桌面端 URL（会自动完成 JS challenge）
         let webResult = await loadReviewViaWebView(url.absoluteString)
+        
 
         // 组装标题：优先 meta，兜底 webview
         let title = metaTitle
@@ -146,8 +147,21 @@ final class DoubanParser: ContentParser, @unchecked Sendable {
         // 组装作者：优先 webview 提取，兜底 meta
         let author = webResult.author ?? extractMeta(html, name: "author")
 
-        // 组装封面：优先 webview 提取，兜底 meta
-        let cover = webResult.cover ?? metaCover
+        // 组装封面：优先 webview 提取，兜底 subject 页面
+        var cover = webResult.cover ?? metaCover
+        // 如果封面为空或是影评头图，从 subject 页面获取真正的电影海报
+        let needSubjectCover = (cover == nil) || (cover?.contains("thing_review") == true)
+        if needSubjectCover, let subjectID = extractSubjectID(from: url) {
+            let subjectURL = URL(string: "https://movie.douban.com/subject/\(subjectID)/") ?? url
+            var subjectRequest = URLRequest(url: subjectURL)
+            subjectRequest.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
+            if let (subjectData, _) = try? await URLSession.shared.data(for: subjectRequest),
+               let subjectHTML = String(data: subjectData, encoding: .utf8) {
+                if let poster = extractMeta(subjectHTML, property: "og:image") {
+                    cover = poster
+                }
+            }
+        }
 
         return ParsedContent(
             title: title,

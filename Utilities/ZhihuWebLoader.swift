@@ -161,20 +161,18 @@ final class ZhihuWebLoader: NSObject, WKNavigationDelegate {
                             }
                         }
                     }
-                    // 优先从 data-image 属性获取影评封面
-                    var coverDataEl = document.querySelector('[data-image]');
-                    if (coverDataEl) {
-                        doubanResult.cover = coverDataEl.getAttribute('data-image') || '';
+                    // 提取封面 - 优先电影/书籍海报，兜底影评头图
+                    var _posterEl = document.querySelector('.subject-img img')
+                        || document.querySelector('.subject-poster img')
+                        || document.querySelector('.poster img')
+                        || document.querySelector('[data-image]');
+                    if (_posterEl && _posterEl.src && _posterEl.src.indexOf('doubanio.com') !== -1) {
+                        doubanResult.cover = _posterEl.src;
+                    } else if (_posterEl && _posterEl.getAttribute && _posterEl.getAttribute('data-image')) {
+                        doubanResult.cover = _posterEl.getAttribute('data-image');
                     } else {
-                        // 兜底：从 subject-img 获取书籍封面
-                        var subjectImgEl = document.querySelector('.subject-img img');
-                        if (subjectImgEl) {
-                            doubanResult.cover = subjectImgEl.src;
-                        } else {
-                            // 再兜底：从 og:image 获取
-                            var ogImage = document.querySelector('meta[property="og:image"]');
-                            doubanResult.cover = ogImage ? ogImage.content : '';
-                        }
+                        var _ogImg = document.querySelector('meta[property="og:image"]');
+                        doubanResult.cover = (_ogImg && _ogImg.content) ? _ogImg.content : '';
                     }
 
                     if (doubanResult.text.length > 30) {
