@@ -31,6 +31,7 @@ targets:
           - Archiver.xcodeproj
           - Archiver.xcworkspace
           - ".DS_Store"
+          - Tests
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.archiver.app

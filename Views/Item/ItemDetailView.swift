@@ -135,7 +135,7 @@ struct ItemDetailView: View {
             InfoRow(label: "导入时间", value: item.importDate.formatted(.dateTime.year().month().day().hour().minute()), icon: "clock")
             if !item.originalURL.hasPrefix("custom://"),
                let url = URL(string: item.originalURL) {
-                Link(destination: url) {
+                Button { BrowserDetector.shared.openURL(url) } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "link")
                             .foregroundStyle(.blue)

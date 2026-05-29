@@ -15,11 +15,13 @@ struct SettingsView: View {
     @State private var backupStatus: String?
     @State private var restoreMetadata: BackupMetadata?
     @State private var selectedBackupURL: URL?
+    @State private var selectedBrowserID: String = BrowserDetector.shared.getSelectedBrowserBundleIdentifier()
     
     var body: some View {
         Form {
             storageSection
             backupSection
+            browserSection
             aboutSection
         }
         .formStyle(.grouped)
@@ -101,14 +103,47 @@ struct SettingsView: View {
                         Text("备份信息").font(.caption).fontWeight(.medium)
                         Text("版本: \(meta.version)").font(.caption2).foregroundStyle(.secondary)
                         Text("时间: \(meta.backupDate)").font(.caption2).foregroundStyle(.secondary)
-                        HStack(spacing: 12) {
+                        HStack {
                             Label("数据库", systemImage: meta.hasDatabase ? "checkmark.circle.fill" : "xmark.circle").font(.caption2).foregroundStyle(meta.hasDatabase ? .green : .red)
                             Label("媒体", systemImage: meta.hasMedia ? "checkmark.circle.fill" : "xmark.circle").font(.caption2).foregroundStyle(meta.hasMedia ? .green : .red)
                             Label("Logo", systemImage: meta.hasLogos ? "checkmark.circle.fill" : "xmark.circle").font(.caption2).foregroundStyle(meta.hasLogos ? .green : .red)
                         }
-                    }.padding(8).background(.quaternary).clipShape(RoundedRectangle(cornerRadius: 6))
+                    }
                 }
             }
+        }
+    }
+    
+    // MARK: - Browser Settings
+    
+    private var browserSection: some View {
+        Section("浏览器设置") {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack { 
+                    Label("默认浏览器", systemImage: "globe"); 
+                    Spacer()
+                    Picker("", selection: $selectedBrowserID) {
+                        Text("系统默认").tag("")
+                        ForEach(BrowserDetector.shared.getAvailableBrowsers()) { browser in
+                            HStack {
+                                if let icon = browser.icon {
+                                    Image(nsImage: icon)
+                                        .resizable()
+                                        .frame(width: 16, height: 16)
+                                }
+                                Text("\(browser.name) (\(browser.version))")
+                            }
+                            .tag(browser.bundleIdentifier)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .frame(width: 250)
+                    .onChange(of: selectedBrowserID) { _, newValue in
+                        BrowserDetector.shared.setSelectedBrowser(newValue)
+                    }
+                }
+            }
+            Text("选择用于打开内容原始链接的浏览器").font(.caption).foregroundStyle(.secondary)
         }
     }
     
@@ -121,20 +156,18 @@ struct SettingsView: View {
             HStack { Text("作者"); Spacer(); Text("LinKin").foregroundStyle(.secondary) }
             
             HStack {
-                Text("检查更新")
+                Label("检查更新", systemImage: "arrow.triangle.2.circlepath")
                 Spacer()
-                if updateChecker.isChecking {
-                    ProgressView().scaleEffect(0.6)
-                } else {
-                    switch updateChecker.status {
+                switch updateChecker.status {
+                    case .checking:
+                        ProgressView().scaleEffect(0.6)
+                    case .updateAvailable(let version):
+                        Button { resetUpdateStatus() } label: {
+                            Label("v\(version) · 前往下载", systemImage: "arrow.clockwise")
+                        }
                     case .upToDate:
                         Button { resetUpdateStatus() } label: {
                             Label("已是最新", systemImage: "arrow.clockwise")
-                        }
-                        .foregroundStyle(.green)
-                    case .updateAvailable(let version, _):
-                        Button { updateChecker.openReleasePage() } label: {
-                            Label("v\(version) · 前往下载", systemImage: "arrow.clockwise")
                         }
                     case .error:
                         Button { resetUpdateStatus() } label: {
@@ -145,7 +178,6 @@ struct SettingsView: View {
                         Button { startCheckForUpdates() } label: {
                             Label("检查", systemImage: "arrow.clockwise")
                         }
-                    }
                 }
             }
             

@@ -14,7 +14,11 @@ final class PlatformRouter {
             CoolapkParser(),
             BilibiliParser(),
             GitHubParser(),
-            YouTubeParser()
+            YouTubeParser(),
+            XParser(),
+            WeiboParser(),
+            ZhihuParser(),
+            DoubanParser()
         ]
     }
     

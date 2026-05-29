@@ -25,6 +25,18 @@ struct URLNormalizer {
         if lower.contains("youtube.com") || lower.contains("youtu.be") {
             return .youtube
         }
+        if lower.contains("x.com") || lower.contains("twitter.com") {
+            return .x
+        }
+        if lower.contains("weibo.com") || lower.contains("m.weibo.cn") {
+            return .weibo
+        }
+        if lower.contains("zhihu.com") {
+            return .zhihu
+        }
+        if lower.contains("douban.com") {
+            return .douban
+        }
         
         return nil
     }
@@ -44,6 +56,14 @@ struct URLNormalizer {
             return normalizeGitHub(urlString)
         case .youtube:
             return normalizeYouTube(urlString)
+        case .x:
+            return normalizeX(urlString)
+        case .weibo:
+            return normalizeWeibo(urlString)
+        case .zhihu:
+            return normalizeZhihu(urlString)
+        case .douban:
+            return normalizeDouban(urlString)
         case .custom:
             return urlString
         }
@@ -64,6 +84,14 @@ struct URLNormalizer {
             return extractGitHubID(urlString)
         case .youtube:
             return extractYouTubeID(urlString)
+        case .x:
+            return extractXID(urlString)
+        case .weibo:
+            return extractWeiboID(urlString)
+        case .zhihu:
+            return extractZhihuID(urlString)
+        case .douban:
+            return extractDoubanID(urlString)
         case .custom:
             return nil
         }
@@ -174,9 +202,86 @@ struct URLNormalizer {
         return extractFirstMatch(url, patterns: patterns)
     }
     
+    // MARK: - X (Twitter)
+    
+    private static func normalizeX(_ url: String) -> String {
+        if let id = extractXID(url) {
+            return "x://tweet/\(id)"
+        }
+        return url
+    }
+    
+    static func extractXID(_ url: String) -> String? {
+        let patterns = [
+            "(?:x|twitter)\\.com/[^/]+/status/(\\d+)",
+            "(?:x|twitter)\\.com/i/status/(\\d+)"
+        ]
+        return extractFirstMatch(url, patterns: patterns)
+    }
+    
+    static func extractXUsername(_ url: String) -> String? {
+        let patterns = [
+            "(?:x|twitter)\\.com/([a-zA-Z0-9_]+)/status/",
+            "(?:x|twitter)\\.com/([a-zA-Z0-9_]+)$"
+        ]
+        return extractFirstMatch(url, patterns: patterns)
+    }
+    
+    // MARK: - 微博
+    
+    private static func normalizeWeibo(_ url: String) -> String {
+        if let id = extractWeiboID(url) {
+            return "weibo://status/\(id)"
+        }
+        return url
+    }
+    
+    static func extractWeiboID(_ url: String) -> String? {
+        let patterns = [
+            "weibo\\.com/status/(\\d+)",
+            "m\\.weibo\\.cn/detail/(\\d+)",
+            "m\\.weibo\\.cn/status/(\\d+)"
+        ]
+        return extractFirstMatch(url, patterns: patterns)
+    }
+    
+    // MARK: - 知乎
+    
+    private static func normalizeZhihu(_ url: String) -> String {
+        if let id = extractZhihuID(url) {
+            return "zhihu://content/\(id)"
+        }
+        return url
+    }
+    
+    static func extractZhihuID(_ url: String) -> String? {
+        let patterns = [
+            "zhihu\\.com/question/\\d+/answer/(\\d+)",
+            "zhihu\\.com/p/(\\d+)",
+            "zhihu\\.com/column/([a-zA-Z0-9_-]+)"
+        ]
+        return extractFirstMatch(url, patterns: patterns)
+    }
+    
+    // MARK: - 豆瓣
+    
+    private static func normalizeDouban(_ url: String) -> String {
+        if let id = extractDoubanID(url) {
+            return "douban://subject/\(id)"
+        }
+        return url
+    }
+    
+    static func extractDoubanID(_ url: String) -> String? {
+        let patterns = [
+            "douban\\.com/subject/(\\d+)"
+        ]
+        return extractFirstMatch(url, patterns: patterns)
+    }
+    
     // MARK: - Helper
     
-    private static func extractFirstMatch(_ text: String, patterns: [String]) -> String? {
+    static func extractFirstMatch(_ text: String, patterns: [String]) -> String? {
         for pattern in patterns {
             if let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive),
                let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),

@@ -30,7 +30,7 @@
 
 复制任意链接，粘贴即可保存。自动识别平台并解析内容。
 
-**支持平台：** 抖音 · 小红书 · 酷安 · B站 · GitHub · YouTube
+**支持平台：** 抖音 · 小红书 · 酷安 · B站 · GitHub · YouTube · X(Twitter) · 微博 · 知乎 · 豆瓣
 
 ### 🖼️ 内容归档
 
@@ -53,6 +53,10 @@
 ### 💾 备份与还原
 
 一键导出为 zip 文件，换电脑或重装系统后可完整还原所有数据。
+
+### 🌐 浏览器选择
+
+在设置中选择用哪个浏览器打开内容的原始链接，支持 Safari、Chrome、Firefox、Edge、Arc。
 
 ### 🔄 检查更新
 
@@ -100,9 +104,9 @@ App/                    应用入口 + 全局状态 + 导航
 Models/                 数据模型
   └── Enums/            枚举定义（平台/状态/类型）
 Database/               数据库层（GRDB + FTS5）
-Parsers/                平台解析器（协议 + 6个实现）
+Parsers/                平台解析器（协议 + 10个实现）
 Services/               导入/备份/更新服务
-Utilities/              工具类（URL 标准化等）
+Utilities/              工具类（URL 标准化、浏览器选择等）
 Views/                  UI 层
   ├── Home/             首页
   ├── Platform/         平台分类 + 文件夹

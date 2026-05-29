@@ -31,7 +31,7 @@
     ↓
 用户粘贴一条链接 → 点击「保存」
     ↓
-系统识别平台（抖音/小红书/酷安/B站/GitHub/YouTube）
+系统识别平台（抖音/小红书/酷安/B站/GitHub/YouTube/X/微博/知乎/豆瓣）
     ↓
 ┌─ 识别成功 → 启动后台解析任务 → 显示进度条
 │     ↓
@@ -71,7 +71,7 @@ Archiver
 │   ├── 全局搜索框
 │   ├── 粘贴并保存输入框
 │   ├── 最近导入（最近10条）
-│   ├── 平台快捷入口（抖音/小红书/酷安/B站/GitHub/YouTube）
+│   ├── 平台快捷入口（抖音/小红书/酷安/B站/GitHub/YouTube/X/微博/知乎/豆瓣）
 │   └── 文件夹入口（最近使用的文件夹）
 │
 ├── 平台分类（侧边栏/Tab）
@@ -347,22 +347,25 @@ Archiver
 │  ⚙️ 设置                                        │
 ├─────────────────────────────────────────────────┤
 │  存储管理                                        │
-│  ├─ 已用空间: 2.3 GB                            │
-│  ├─ 数据库: 15 MB                               │
-│  ├─ 媒体文件: 2.28 GB                           │
-│  └─ [清理缓存]                                  │
+│  ├─ 总内容数: 123 条                             │
+│  ├─ 数据库大小: 2.4 MB                           │
+│  ├─ 数据目录: ~/Library/Application Support/...  │
+│  ├─ [修改目录] [恢复默认]                         │
 │                                                 │
-│  导入设置                                        │
-│  ├─ 默认状态: [待整理 ▾]                         │
-│  └─ 自动保存视频: [开启]                         │
+│  备份与还原                                      │
+│  ├─ 备份数据: [导出备份]                          │
+│  └─ 还原数据: [选择备份文件] [开始还原]            │
 │                                                 │
-│  回收站                                          │
-│  ├─ 自动清理: [30天 ▾]                           │
-│  └─ [立即清空]                                  │
+│  浏览器设置                                      │
+│  ├─ 默认浏览器: [系统默认 ▾]                     │
+│  └─ 选择用于打开内容原始链接的浏览器               │
 │                                                 │
 │  关于                                            │
-│  ├─ 版本: 1.0.0                                 │
-│  └─ 数据目录: ~/Documents/Archiver/              │
+│  ├─ 版本: 1.0.3                                 │
+│  ├─ 应用名称: 拾屿 (Archiver)                    │
+│  ├─ 作者: LinKin                                 │
+│  ├─ 检查更新: [检查]                              │
+│  └─ GitHub 项目地址                              │
 └─────────────────────────────────────────────────┘
 ```
 
@@ -385,6 +388,12 @@ Archiver
 │   ├── 小红书解析器 (XiaohongshuParser)
 │   ├── 酷安解析器 (CoolapkParser)
 │   ├── B站解析器 (BilibiliParser)
+│   ├── GitHub解析器 (GitHubParser)
+│   ├── YouTube解析器 (YouTubeParser)
+│   ├── X解析器 (XParser)
+│   ├── 微博解析器 (WeiboParser)
+│   ├── 知乎解析器 (ZhihuParser)
+│   ├── 豆瓣解析器 (DoubanParser)
 │   └── 媒体下载器 (MediaDownloader)
 │
 ├── 💾 存储模块 (StorageModule)
@@ -855,7 +864,13 @@ ParserModule
 ├── DouyinParser: ContentParser
 ├── XiaohongshuParser: ContentParser
 ├── CoolapkParser: ContentParser
-└── BilibiliParser: ContentParser
+├── BilibiliParser: ContentParser
+├── GitHubParser: ContentParser
+├── YouTubeParser: ContentParser
+├── XParser: ContentParser
+├── WeiboParser: ContentParser
+├── ZhihuParser: ContentParser
+└── DoubanParser: ContentParser
 ```
 
 **扩展新平台的步骤**：
@@ -1024,7 +1039,7 @@ enum AppError: LocalizedError {
 | 场景 | 处理方式 | 用户反馈 |
 |------|---------|---------|
 | 链接格式不合法 | 拒绝导入 | 「链接格式不正确，请检查后重试」 |
-| 平台暂不支持 | 拒绝导入 | 「暂不支持该平台，目前支持：抖音、小红书、酷安、B站、GitHub、YouTube」 |
+| 平台暂不支持 | 拒绝导入 | 「暂不支持该平台，目前支持：抖音、小红书、酷安、B站、GitHub、YouTube、X、微博、知乎、豆瓣」 |
 | 识别成功但解析失败 | 创建失败记录 | 「解析失败，已保存链接，可稍后重试」 |
 | 图文成功但视频失败 | 创建记录，标记partial | 「内容已保存，但视频未能完整下载」 |
 | 媒体下载中断 | 保留已下载部分，标记状态 | 「下载中断，已保存部分内容」 |
@@ -1050,7 +1065,7 @@ enum AppError: LocalizedError {
 ## 11.1 MVP 必须做（第一版）
 
 - [x] 首页 + 粘贴并保存输入框
-- [x] 六平台链接识别（抖音/小红书/酷安/B站/GitHub/YouTube）
+- [x] 十平台链接识别（抖音/小红书/酷安/B站/GitHub/YouTube/X/微博/知乎/豆瓣）
 - [x] 基础内容解析（标题/正文/作者/时间/封面）
 - [x] 图片下载保存
 - [x] SQLite 数据库 + FTS5 搜索
@@ -1163,11 +1178,18 @@ Archiver/
 │
 ├── Parsers/
 │   ├── ContentParser.swift            // 协议定义
+│   ├── BaseParser.swift               // 解析器基类
 │   ├── PlatformRouter.swift           // 平台路由
 │   ├── DouyinParser.swift
 │   ├── XiaohongshuParser.swift
 │   ├── CoolapkParser.swift
-│   └── BilibiliParser.swift
+│   ├── BilibiliParser.swift
+│   ├── GitHubParser.swift
+│   ├── YouTubeParser.swift
+│   ├── XParser.swift
+│   ├── WeiboParser.swift
+│   ├── ZhihuParser.swift
+│   └── DoubanParser.swift
 │
 ├── ViewModels/
 │   ├── HomeViewModel.swift
@@ -1288,4 +1310,4 @@ Archiver/
 
 ---
 
-*文档版本: v1.0 | 最后更新: 2025-05-27*
+*文档版本: v1.1 | 最后更新: 2026-05-29*
