@@ -19,6 +19,9 @@ struct URLNormalizer {
         if lower.contains("bilibili.com") || lower.contains("b23.tv") {
             return .bilibili
         }
+        if lower.contains("github.com") {
+            return .github
+        }
         
         return nil
     }
@@ -34,6 +37,8 @@ struct URLNormalizer {
             return normalizeCoolapk(urlString)
         case .bilibili:
             return normalizeBilibili(urlString)
+        case .github:
+            return normalizeGitHub(urlString)
         case .custom:
             return urlString
         }
@@ -50,6 +55,8 @@ struct URLNormalizer {
             return extractCoolapkID(urlString)
         case .bilibili:
             return extractBilibiliID(urlString)
+        case .github:
+            return extractGitHubID(urlString)
         case .custom:
             return nil
         }
@@ -65,8 +72,6 @@ struct URLNormalizer {
     }
     
     private static func extractDouyinID(_ url: String) -> String? {
-        // https://www.douyin.com/video/7351234567890
-        // https://v.douyin.com/xxxxx/
         let patterns = [
             "douyin\\.com/video/(\\d+)",
             "iesdouyin\\.com/share/video/(\\d+)"
@@ -84,8 +89,6 @@ struct URLNormalizer {
     }
     
     private static func extractXiaohongshuID(_ url: String) -> String? {
-        // https://www.xiaohongshu.com/explore/64a1b2c3d4e5f6789
-        // https://www.xiaohongshu.com/discovery/item/64a1b2c3d4e5f6789
         let patterns = [
             "xiaohongshu\\.com/explore/([a-f0-9]+)",
             "xiaohongshu\\.com/discovery/item/([a-f0-9]+)"
@@ -103,8 +106,6 @@ struct URLNormalizer {
     }
     
     private static func extractCoolapkID(_ url: String) -> String? {
-        // https://www.coolapk.com/feed/12345678
-        // https://www.coolapk.com/feed?url=xxx
         let patterns = [
             "coolapk\\.com/feed/(\\d+)",
             "coolapk1s\\.com/feed/(\\d+)"
@@ -122,11 +123,25 @@ struct URLNormalizer {
     }
     
     private static func extractBilibiliID(_ url: String) -> String? {
-        // https://www.bilibili.com/video/BV1xx411c7mD
-        // https://b23.tv/xxxxx
         let patterns = [
             "bilibili\\.com/video/(BV[a-zA-Z0-9]+)",
             "bilibili\\.com/video/(av\\d+)"
+        ]
+        return extractFirstMatch(url, patterns: patterns)
+    }
+    
+    // MARK: - GitHub
+    
+    private static func normalizeGitHub(_ url: String) -> String {
+        if let id = extractGitHubID(url) {
+            return "github://repo/\(id)"
+        }
+        return url
+    }
+    
+    private static func extractGitHubID(_ url: String) -> String? {
+        let patterns = [
+            "github\\.com/([a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+)"
         ]
         return extractFirstMatch(url, patterns: patterns)
     }

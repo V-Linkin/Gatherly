@@ -133,16 +133,20 @@ struct ItemDetailView: View {
                 InfoRow(label: "发布时间", value: date.formatted(.dateTime.year().month().day().hour().minute()), icon: "calendar")
             }
             InfoRow(label: "导入时间", value: item.importDate.formatted(.dateTime.year().month().day().hour().minute()), icon: "clock")
-            if !item.originalURL.hasPrefix("custom://") {
-                HStack(spacing: 6) {
-                    Image(systemName: "link")
-                        .foregroundStyle(.blue)
-                    Text(item.originalURL)
-                        .font(.caption)
-                        .foregroundStyle(.blue)
-                        .lineLimit(1)
-                        .textSelection(.enabled)
+            if !item.originalURL.hasPrefix("custom://"),
+               let url = URL(string: item.originalURL) {
+                Link(destination: url) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "link")
+                            .foregroundStyle(.blue)
+                        Text(item.originalURL)
+                            .font(.caption)
+                            .foregroundStyle(.blue)
+                            .lineLimit(1)
+                    }
                 }
+                .buttonStyle(.plain)
+                .help("在浏览器中打开原链接")
             }
             if let folderID = item.folderID, let folder = try? appState.folderRepo.find(id: folderID) {
                 InfoRow(label: "文件夹", value: folder.name, icon: "folder.fill")
@@ -154,11 +158,9 @@ struct ItemDetailView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("正文").font(.headline)
             if let body = item.body, !body.isEmpty {
-                Text(stripHTML(body))
+                MarkdownView(text: body)
                     .font(.body)
                     .foregroundStyle(.primary)
-                    .lineSpacing(4)
-                    .textSelection(.enabled)
             } else {
                 Text("暂无正文内容")
                     .font(.body)

@@ -7,6 +7,7 @@ enum Platform: String, Codable, CaseIterable, Identifiable {
     case xiaohongshu
     case coolapk
     case bilibili
+    case github
     case custom
     
     var id: String { rawValue }
@@ -17,6 +18,7 @@ enum Platform: String, Codable, CaseIterable, Identifiable {
         case .xiaohongshu: return "小红书"
         case .coolapk: return "酷安"
         case .bilibili: return "B站"
+        case .github: return "GitHub"
         case .custom: return "自定义"
         }
     }
@@ -31,6 +33,7 @@ enum Platform: String, Codable, CaseIterable, Identifiable {
         case .xiaohongshu: return "book.fill"
         case .coolapk: return "apps.iphone"
         case .bilibili: return "play.tv"
+        case .github: return "chevron.left.forwardslash.chevron.right"
         case .custom: return "star.fill"
         }
     }
@@ -41,6 +44,7 @@ enum Platform: String, Codable, CaseIterable, Identifiable {
         case .xiaohongshu: return .red
         case .coolapk: return .green
         case .bilibili: return .cyan
+        case .github: return .primary
         case .custom: return .purple
         }
     }
