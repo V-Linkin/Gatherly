@@ -115,7 +115,7 @@ struct PlatformView: View {
                 ForEach(items) { item in
                     Button {
                         previousNav = .platform(platform)
-                        selectedNav = .item(item.id)
+                        if NavDebounce.shared.canNavigate() { selectedNav = .item(item.id) }
                     } label: {
                         ItemCardView(item: item)
                     }
@@ -131,7 +131,7 @@ struct PlatformView: View {
         List(items) { item in
             Button {
                 previousNav = .platform(platform)
-                selectedNav = .item(item.id)
+                if NavDebounce.shared.canNavigate() { selectedNav = .item(item.id) }
             } label: {
                 ItemListRow(item: item)
             }

@@ -48,14 +48,27 @@ final class AppState {
     var showToast = false
     
     func refreshData() {
-        customPlatforms = (try? customPlatformRepo.fetchAll()) ?? []
-        recentItems = (try? itemRepo.fetchRecent(limit: 10)) ?? []
-        recentFolders = (try? folderRepo.fetchRecent(limit: 5)) ?? []
-        try? searchRepo.rebuildIndex()
-        
-        let allItems = (try? itemRepo.fetchAll()) ?? []
-        for cp in customPlatforms {
-            customPlatformCounts[cp.id] = allItems.filter { $0.customPlatformID == cp.id }.count
+        // 异步执行数据库操作，避免阻塞主线程
+        Task.detached { [weak self] in
+            guard let self else { return }
+            let customPlatforms = (try? self.customPlatformRepo.fetchAll()) ?? []
+            let recentItems = (try? self.itemRepo.fetchRecent(limit: 10)) ?? []
+            let recentFolders = (try? self.folderRepo.fetchRecent(limit: 5)) ?? []
+            try? self.searchRepo.rebuildIndex()
+            
+            // 用 SQL COUNT 替代加载全部条目
+            var counts: [UUID: Int] = [:]
+            for cp in customPlatforms {
+                let count = (try? self.itemRepo.countByCustomPlatform(cp.id)) ?? 0
+                counts[cp.id] = count
+            }
+            
+            await MainActor.run {
+                self.customPlatforms = customPlatforms
+                self.recentItems = recentItems
+                self.recentFolders = recentFolders
+                self.customPlatformCounts = counts
+            }
         }
     }
     

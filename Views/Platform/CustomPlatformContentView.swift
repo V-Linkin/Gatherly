@@ -116,7 +116,7 @@ struct CustomPlatformContentView: View {
                 ForEach(items) { item in
                     Button {
                         previousNav = .customPlatform(customPlatformID)
-                        selectedNav = .item(item.id)
+                        if NavDebounce.shared.canNavigate() { selectedNav = .item(item.id) }
                     } label: {
                         ItemCardView(item: item)
                     }
@@ -132,7 +132,7 @@ struct CustomPlatformContentView: View {
         List(items) { item in
             Button {
                 previousNav = .customPlatform(customPlatformID)
-                selectedNav = .item(item.id)
+                if NavDebounce.shared.canNavigate() { selectedNav = .item(item.id) }
             } label: {
                 ItemListRow(item: item)
             }

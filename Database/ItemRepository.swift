@@ -230,6 +230,17 @@ final class ItemRepository: @unchecked Sendable {
         }
     }
     
+    /// 统计指定自定义平台的条目数
+    func countByCustomPlatform(_ platformID: UUID) throws -> Int {
+        try db.read { db in
+            try Int.fetchOne(
+                db,
+                sql: "SELECT COUNT(*) FROM items WHERE custom_platform_id=? AND deleted_at IS NULL",
+                arguments: [platformID.uuidString]
+            ) ?? 0
+        }
+    }
+
     // MARK: - Private
     
     private func fetchOne(_ db: Database, sql: String, arguments: StatementArguments) throws -> Item? {

@@ -104,7 +104,7 @@ struct UncategorizedContentView: View {
                 ForEach(items) { item in
                     Button {
                         previousNav = .uncategorized
-                        selectedNav = .item(item.id)
+                        if NavDebounce.shared.canNavigate() { selectedNav = .item(item.id) }
                     } label: {
                         ItemCardView(item: item)
                     }
@@ -120,7 +120,7 @@ struct UncategorizedContentView: View {
         List(items) { item in
             Button {
                 previousNav = .uncategorized
-                selectedNav = .item(item.id)
+                if NavDebounce.shared.canNavigate() { selectedNav = .item(item.id) }
             } label: {
                 ItemListRow(item: item)
             }

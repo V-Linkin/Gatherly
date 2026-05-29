@@ -1,7 +1,33 @@
 import Foundation
 import WebKit
 
+/// 豆瓣请求频率限制器，防止触发风控
+private actor DoubanRateLimiter {
+    private var lastRequestTime: Date = .distantPast
+    private let minimumInterval: TimeInterval = 2.0  // 最少间隔 2 秒
+
+    /// 返回需要等待的秒数，并记录本次请求时间
+    func timeToWait() -> TimeInterval {
+        let now = Date()
+        let elapsed = now.timeIntervalSince(lastRequestTime)
+        let wait = max(0, minimumInterval - elapsed)
+        lastRequestTime = now.addingTimeInterval(wait)
+        return wait
+    }
+}
+
 final class DoubanParser: ContentParser, @unchecked Sendable {
+
+    /// 请求间隔控制：避免短时间内大量请求触发豆瓣风控
+    private static let rateLimiter = DoubanRateLimiter()
+
+    /// 确保请求间隔，避免触发风控
+    private static func respectRateLimit() async {
+        let waitTime = await rateLimiter.timeToWait()
+        if waitTime > 0 {
+            try? await Task.sleep(for: .seconds(waitTime))
+        }
+    }
 
     private let session: URLSession = {
         let config = URLSessionConfiguration.default
@@ -65,6 +91,9 @@ final class DoubanParser: ContentParser, @unchecked Sendable {
     // MARK: - Subject Page (书/影/音)
 
     private func parseSubjectPage(_ url: URL) async throws -> ParsedContent {
+        // 请求间隔控制
+        await Self.respectRateLimit()
+        
         let mobileURL = toMobileURL(url)
         let (data, response) = try await session.data(from: mobileURL)
         guard let httpResponse = response as? HTTPURLResponse,
@@ -114,8 +143,20 @@ final class DoubanParser: ContentParser, @unchecked Sendable {
     // MARK: - Review Page (影评/书评)
 
     private func parseReviewPage(_ url: URL) async throws -> ParsedContent {
-        // 先从桌面端获取 meta 信息（包含 og 标签）
-        let (data, response) = try await session.data(from: url)
+        let desktopUA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        let reviewID = extractReviewID(from: url)
+        
+        // 请求间隔控制
+        await Self.respectRateLimit()
+        
+        // 第一步：用桌面端 UA 获取页面 HTML
+        var htmlRequest = URLRequest(url: url)
+        htmlRequest.setValue(desktopUA, forHTTPHeaderField: "User-Agent")
+        htmlRequest.setValue("text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8", forHTTPHeaderField: "Accept")
+        htmlRequest.setValue("zh-CN,zh;q=0.9,en;q=0.8", forHTTPHeaderField: "Accept-Language")
+        htmlRequest.setValue("https://movie.douban.com/", forHTTPHeaderField: "Referer")
+        
+        let (data, response) = try await URLSession.shared.data(for: htmlRequest)
         guard let httpResponse = response as? HTTPURLResponse,
               httpResponse.statusCode == 200 else {
             throw ParserError.parseFailed(reason: "HTTP 请求失败")
@@ -123,38 +164,45 @@ final class DoubanParser: ContentParser, @unchecked Sendable {
         guard let html = String(data: data, encoding: .utf8) else {
             throw ParserError.parseFailed(reason: "无法解码页面内容")
         }
-
-        // meta 标签获取基本信息
+        
+        // 第二步：从 HTML 直接解析所有字段
         let metaTitle = extractMeta(html, property: "og:title") ?? extractPageTitle(html)
         let metaDesc = extractMeta(html, property: "og:description") ?? extractMeta(html, name: "description")
         let metaCover = extractMeta(html, property: "og:image")
-        let reviewID = extractReviewID(from: url)
-
-        // 用 WKWebView 加载桌面端 URL（会自动完成 JS challenge）
-        let webResult = await loadReviewViaWebView(url.absoluteString)
+        let metaAuthor = extractMeta(html, name: "author")
         
-
-        // 组装标题：优先 meta，兜底 webview
-        let title = metaTitle
-
-        // 组装正文：优先 webview 完整文本，兜底 meta description
-        var body = webResult.text
-        if body == nil || body!.count <= (metaDesc?.count ?? 0) {
-                body = metaDesc
-        } else {
+        // 从 HTML 正文区域提取内容
+        let htmlBody = extractReviewBodyFromHTML(html)
+        
+        // 提取作者（从影评页面的特定结构）
+        let htmlAuthor = extractReviewAuthorFromHTML(html) ?? metaAuthor
+        
+        // 组装标题
+        var title = metaTitle
+        if title == "豆瓣" || (title != nil && title!.count < 3) {
+            // og:title 太短，尝试从页面 h1 提取
+            if let h1 = extractFirst(html, pattern: #"<h1[^>]*>([^<]+)</h1>"#) {
+                title = h1.trimmingCharacters(in: .whitespacesAndNewlines)
             }
-
-        // 组装作者：优先 webview 提取，兜底 meta
-        let author = webResult.author ?? extractMeta(html, name: "author")
-
-        // 组装封面：优先 webview 提取，兜底 subject 页面
-        var cover = webResult.cover ?? metaCover
-        // 如果封面为空或是影评头图，从 subject 页面获取真正的电影海报
+        }
+        
+        // 组装正文：优先 HTML 解析，兜底 meta description
+        var body = htmlBody
+        if body == nil || body!.isEmpty {
+            body = metaDesc
+        }
+        
+        // 组装作者
+        let author = htmlAuthor
+        
+        // 组装封面：优先 meta，兜底从 subject 页面获取
+        var cover = metaCover
         let needSubjectCover = (cover == nil) || (cover?.contains("thing_review") == true)
         if needSubjectCover, let subjectID = extractSubjectID(from: url) {
+            await Self.respectRateLimit()
             let subjectURL = URL(string: "https://movie.douban.com/subject/\(subjectID)/") ?? url
             var subjectRequest = URLRequest(url: subjectURL)
-            subjectRequest.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
+            subjectRequest.setValue(desktopUA, forHTTPHeaderField: "User-Agent")
             if let (subjectData, _) = try? await URLSession.shared.data(for: subjectRequest),
                let subjectHTML = String(data: subjectData, encoding: .utf8) {
                 if let poster = extractMeta(subjectHTML, property: "og:image") {
@@ -162,14 +210,23 @@ final class DoubanParser: ContentParser, @unchecked Sendable {
                 }
             }
         }
-
+        
+        // 第三步：尝试用 WKWebView 补充内容（如果 HTML 解析不够完整）
+        let webResult = await loadReviewViaWebView(url.absoluteString)
+        
+        // 合并结果：webview 优先（如果成功获取到内容）
+        let finalTitle = webResult.title ?? title
+        let finalBody = (webResult.text != nil && webResult.text!.count > (body?.count ?? 0)) ? webResult.text : body
+        let finalAuthor = webResult.author ?? author
+        let finalCover = webResult.cover ?? cover
+        
         return ParsedContent(
-            title: title,
-            body: body,
-            author: author,
-            coverURL: cover,
+            title: finalTitle,
+            body: finalBody,
+            author: finalAuthor,
+            coverURL: finalCover,
             platformContentID: reviewID,
-            rawMetadata: ["type": "review", "source": "webview"]
+            rawMetadata: ["type": "review", "source": "html+webview"]
         )
     }
 
@@ -209,6 +266,7 @@ final class DoubanParser: ContentParser, @unchecked Sendable {
 
     /// WKWebView 返回的结构化数据
     private struct WebContentResult {
+        var title: String?
         var text: String?
         var author: String?
         var cover: String?
@@ -224,10 +282,11 @@ final class DoubanParser: ContentParser, @unchecked Sendable {
             let jsonStr = String(result.dropFirst(12))
             if let jsonData = jsonStr.data(using: .utf8),
                let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] {
+                let title = json["title"] as? String
                 let text = json["text"] as? String
                 let author = json["author"] as? String
                 let cover = json["cover"] as? String
-                return WebContentResult(text: text, author: author, cover: cover)
+                return WebContentResult(title: title, text: text, author: author, cover: cover)
             }
         } else if result.hasPrefix("DOUBAN:") {
             let text = String(result.dropFirst(7)).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -246,6 +305,73 @@ final class DoubanParser: ContentParser, @unchecked Sendable {
             }
         }
         return WebContentResult(text: cleanHTML(result))
+    }
+
+    // MARK: - HTML Review Extraction
+    
+    /// 从 HTML 中提取影评正文
+    private func extractReviewBodyFromHTML(_ html: String) -> String? {
+        // 尝试多种选择器匹配影评正文区域
+        let patterns = [
+            #"<div\s+id="link-report"[^>]*>(.*?)</div>"#,
+            #"<div\s+class="review-content[^"]*"[^>]*>(.*?)</div>"#,
+            #"<div\s+class="main-review[^"]*"[^>]*>(.*?)</div>"#,
+            #"<div\s+class="review-body[^"]*"[^>]*>(.*?)</div>"#,
+            #"<span\s+class="short"[^>]*>(.*?)</span>"#,
+        ]
+        
+        for pattern in patterns {
+            if let regex = try? NSRegularExpression(pattern: pattern, options: .dotMatchesLineSeparators),
+               let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
+               let range = Range(match.range(at: 1), in: html) {
+                let content = String(html[range])
+                let text = cleanHTML(content)
+                if text.count > 30 {
+                    return text
+                }
+            }
+        }
+        
+        // 兜底：从所有 <p> 标签中提取长文本
+        let pPattern = #"<p[^>]*>(.*?)</p>"#
+        if let regex = try? NSRegularExpression(pattern: pPattern, options: .dotMatchesLineSeparators) {
+            let matches = regex.matches(in: html, range: NSRange(html.startIndex..., in: html))
+            var paragraphs: [String] = []
+            for match in matches {
+                if let range = Range(match.range(at: 1), in: html) {
+                    let text = cleanHTML(String(html[range]))
+                    if text.count > 10 {
+                        paragraphs.append(text)
+                    }
+                }
+            }
+            if !paragraphs.isEmpty {
+                return paragraphs.joined(separator: "\n\n")
+            }
+        }
+        
+        return nil
+    }
+    
+    /// 从 HTML 中提取影评作者
+    private func extractReviewAuthorFromHTML(_ html: String) -> String? {
+        // 豆瓣影评作者通常在这些位置
+        let patterns = [
+            #"<a[^>]*class="name"[^>]*>([^<]+)</a>"#,
+            #"<span[^>]*class="name"[^>]*>\s*<a[^>]*>([^<]+)</a>"#,
+            #"<a[^>]*href="https?://www\.douban\.com/people/[^"]*"[^>]*>([^<]+)</a>"#,
+            #"<span[^>]*class="author"[^>]*>([^<]+)</span>"#,
+        ]
+        
+        for pattern in patterns {
+            if let author = extractFirst(html, pattern: pattern) {
+                let trimmed = author.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty && trimmed.count < 30 && trimmed != "豆瓣" {
+                    return trimmed
+                }
+            }
+        }
+        return nil
     }
 
     // MARK: - Content Extraction

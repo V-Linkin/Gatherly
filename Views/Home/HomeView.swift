@@ -157,7 +157,7 @@ struct RecentItemsSection: View {
                     ForEach(items) { item in
                         Button {
                             previousNav = .home
-                            selectedNav = .item(item.id)
+                            if NavDebounce.shared.canNavigate() { selectedNav = .item(item.id) }
                         } label: {
                             ItemCardView(item: item)
                         }

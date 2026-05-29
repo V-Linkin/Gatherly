@@ -25,13 +25,13 @@ final class ZhihuWebLoader: NSObject, WKNavigationDelegate {
             self.continuation = continuation
 
             self.loadTimeout = Task {
-                try? await Task.sleep(for: .seconds(30))
+                try? await Task.sleep(for: .seconds(15))
                 if self.continuation != nil {
                     self.finishWith(nil)
                 }
             }
 
-            webView.load(URLRequest(url: url))
+        webView.load(URLRequest(url: url))
         }
     }
 
@@ -39,24 +39,38 @@ final class ZhihuWebLoader: NSObject, WKNavigationDelegate {
         Task { @MainActor in
             if !didFinishInitialLoad {
                 didFinishInitialLoad = true
-                try? await Task.sleep(for: .seconds(2))
-
-                // 检查是否需要等待 JS 执行
-                let checkJS = "document.querySelector('#js-initialData') ? 'ready' : document.body.innerText.length > 500 ? 'loaded' : 'challenge'"
-                if let result = try? await webView.evaluateJavaScript(checkJS) as? String {
-                    if result == "ready" || result == "loaded" {
-                        extractContent(from: webView)
-                    } else {
-                        try? await Task.sleep(for: .seconds(5))
-                        extractContent(from: webView)
-                    }
-                } else {
-                    extractContent(from: webView)
-                }
-            } else {
-                try? await Task.sleep(for: .seconds(2))
-                extractContent(from: webView)
             }
+            // 轮询等待页面就绪（替代固定等待，大幅减少导入时间）
+            await pollUntilReady(webView: webView)
+        }
+    }
+    
+    @MainActor
+    private func pollUntilReady(webView: WKWebView) {
+        Task {
+            let maxAttempts = 12  // 最多轮询 6 秒（12 × 0.5s）
+            let checkJS = "document.querySelector('#js-initialData') ? 'ready' : document.body.innerText.length > 500 ? 'loaded' : 'challenge'"
+            
+            for attempt in 0..<maxAttempts {
+                try? await Task.sleep(for: .milliseconds(500))
+                
+                let bodyLen = try? await webView.evaluateJavaScript("document.body ? document.body.innerText.length : -1") as? Int ?? -1
+                let currentURL = webView.url?.absoluteString ?? "nil"
+                
+                guard let result = try? await webView.evaluateJavaScript(checkJS) as? String else {
+                    continue
+                }
+                
+                if result == "ready" || result == "loaded" {
+                    // 页面已就绪，再等 0.5s 让 DOM 稳定后提取
+                    try? await Task.sleep(for: .milliseconds(500))
+                    extractContent(from: webView)
+                    return
+                }
+                // challenge 页面，继续轮询等待重定向
+            }
+            // 超时，尝试提取（可能内容不完整但比没有好）
+            extractContent(from: webView)
         }
     }
 
@@ -93,7 +107,7 @@ final class ZhihuWebLoader: NSObject, WKNavigationDelegate {
 
                 // === 豆瓣 - 提取影评内容、作者、封面 ===
                 if (url.indexOf('douban.com') !== -1) {
-                    var doubanResult = {text: '', author: '', cover: '', debug: ''};
+                    var doubanResult = {text: '', title: '', author: '', cover: '', debug: ''};
                     var doubanSelectors = [
                         '.review-content', '.main-review', '#link-report',
                         '.note', '#content .intro', '#content',
@@ -161,6 +175,18 @@ final class ZhihuWebLoader: NSObject, WKNavigationDelegate {
                             }
                         }
                     }
+                    // 提取标题 - 影评标题
+                    var _titleEl = document.querySelector('h1')
+                        || document.querySelector('.article h1')
+                        || document.querySelector('.main-hd h1');
+                    doubanResult.title = _titleEl ? _titleEl.innerText.trim() : '';
+                    // h1 太短或包含"豆瓣"时，用 og:title 兜底
+                    if (!doubanResult.title || doubanResult.title.length < 3 || doubanResult.title === '豆瓣') {
+                        var _ogT = document.querySelector('meta[property="og:title"]');
+                        if (_ogT && _ogT.content && _ogT.content.length > 2 && _ogT.content !== '豆瓣') {
+                            doubanResult.title = _ogT.content.replace(/\\s*[-—]\\s*豆瓣.*$/, '').trim();
+                        }
+                    }
                     // 提取封面 - 优先电影/书籍海报，兜底影评头图
                     var _posterEl = document.querySelector('.subject-img img')
                         || document.querySelector('.subject-poster img')
@@ -176,9 +202,11 @@ final class ZhihuWebLoader: NSObject, WKNavigationDelegate {
                     }
 
                     if (doubanResult.text.length > 30) {
+                        doubanResult.debug += ' | bodyLen:' + bodyLen + ' | pageURL:' + url + ' | h1:' + (document.querySelector('h1') ? document.querySelector('h1').innerText.substring(0,50) : 'none');
                         return 'DOUBAN_JSON:' + JSON.stringify(doubanResult);
                     }
-                    return 'DOUBAN_JSON:' + JSON.stringify({text:'', author: doubanResult.author, cover: doubanResult.cover, debug: 'no_content bodyLen:' + bodyLen});
+                    doubanResult.debug += ' | bodyLen:' + bodyLen + ' | pageURL:' + url + ' | h1:' + (document.querySelector('h1') ? document.querySelector('h1').innerText.substring(0,50) : 'none') + ' | reviewContent:' + (document.querySelector('.review-content') ? 'exists' : 'missing') + ' | mainReview:' + (document.querySelector('.main-review') ? 'exists' : 'missing');
+                    return 'DOUBAN_JSON:' + JSON.stringify({text:'', title: doubanResult.title, author: doubanResult.author, cover: doubanResult.cover, debug: doubanResult.debug});
                 }
 
                 // === 通用 - 取主要内容区 ===

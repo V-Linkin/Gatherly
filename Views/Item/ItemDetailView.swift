@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 
 struct ItemDetailView: View {
@@ -12,6 +13,7 @@ struct ItemDetailView: View {
     @State private var isEditing = false
     @State private var showMoveSheet = false
     @State private var showDeleteConfirm = false
+    @State private var isImageTapEnabled = false
     
     var body: some View {
         return Group {
@@ -36,7 +38,13 @@ struct ItemDetailView: View {
         } message: {
             Text("确定将此内容移入回收站？")
         }
-        .onAppear { loadItem() }
+        .onAppear {
+            loadItem()
+            // 延迟启用图片点击，防止双击进入详情时误触图片预览
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                isImageTapEnabled = true
+            }
+        }
     }
     
     private func detailContent(_ item: Item) -> some View {
@@ -108,7 +116,11 @@ struct ItemDetailView: View {
                                         .aspectRatio(contentMode: .fit)
                                         .frame(height: 280)
                                         .clipShape(RoundedRectangle(cornerRadius: 8))
-                                        .onTapGesture { zoomedImage = nsImage }
+                                        .onTapGesture {
+                                            if isImageTapEnabled {
+                                                zoomedImage = nsImage
+                                            }
+                                        }
                                 }
                             }
                         }
@@ -210,7 +222,6 @@ struct ItemDetailView: View {
     private func loadItem() {
         item = try? appState.itemRepo.find(id: itemID)
         mediaAssets = (try? appState.mediaRepo.findByItemID(itemID)) ?? []
-
     }
     
     private func deleteItem() {
