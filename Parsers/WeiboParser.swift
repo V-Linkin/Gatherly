@@ -83,9 +83,78 @@ final class WeiboParser: ContentParser, @unchecked Sendable {
         return assets
     }
 
+    // MARK: - JSON 解析（AJAX API 共用）
+
+    private func parseWeiboJSON(_ status: [String: Any], statusID: String) -> ParsedContent {
+        let rawText = status["text"] as? String ?? ""
+        let text = Self.stripHTML(rawText)
+
+        var imageURLs: [String] = []
+        if let pics = status["pics"] as? [[String: Any]] {
+            for pic in pics {
+                if let large = pic["large"] as? [String: Any],
+                   let urlStr = large["url"] as? String {
+                    imageURLs.append(urlStr)
+                } else if let urlStr = pic["url"] as? String {
+                    imageURLs.append(makeWeiboImageLarge(urlStr))
+                }
+            }
+        }
+
+        var author: String?
+        var authorID: String?
+        if let user = status["user"] as? [String: Any] {
+            author = user["screen_name"] as? String
+            authorID = user["id_str"] as? String ?? (user["id"] as? Int).map { String($0) }
+        }
+
+        var publishDate: Date?
+        if let createdAt = status["created_at"] as? String {
+            publishDate = parseWeiboDate(createdAt)
+        }
+
+        let title = text.isEmpty ? "微博 \(statusID)" : String(text.prefix(80))
+
+        // 首张图作为封面，从正文图片列表中移除避免重复下载
+        let cover = imageURLs.first
+        let bodyImages = Array(imageURLs.dropFirst())
+
+        return ParsedContent(
+            title: title,
+            body: text,
+            author: author,
+            authorID: authorID,
+            publishDate: publishDate,
+            coverURL: cover,
+            imageURLs: bodyImages,
+            videoURL: nil,
+            platformContentID: statusID,
+            rawMetadata: ["type": "status"]
+        )
+    }
+
     // MARK: - Mobile Page (m.weibo.cn)
 
     private func parseMobilePage(_ url: URL, statusID: String) async throws -> ParsedContent? {
+        // 优先用 AJAX API（带 X-Requested-With 头绕过反爬）
+        let apiURL = URL(string: "https://m.weibo.cn/statuses/show?id=\(statusID)")!
+        var apiRequest = URLRequest(url: apiURL)
+        apiRequest.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1", forHTTPHeaderField: "User-Agent")
+        apiRequest.setValue("XMLHttpRequest", forHTTPHeaderField: "X-Requested-With")
+        apiRequest.setValue("application/json, text/plain, */*", forHTTPHeaderField: "Accept")
+        apiRequest.setValue("https://m.weibo.cn/detail/\(statusID)", forHTTPHeaderField: "Referer")
+
+        let (apiData, apiResponse) = try await URLSession.shared.data(for: apiRequest)
+        guard let apiHttpResponse = apiResponse as? HTTPURLResponse,
+              apiHttpResponse.statusCode == 200 else { return nil }
+
+        if let apiJSON = try? JSONSerialization.jsonObject(with: apiData) as? [String: Any],
+           apiJSON["ok"] as? Int == 1,
+           let dataDict = apiJSON["data"] as? [String: Any] {
+            return parseWeiboJSON(dataDict, statusID: statusID)
+        }
+
+        // 兜底：尝试原始 HTML 解析
         let (data, response) = try await session.data(from: url)
         guard let httpResponse = response as? HTTPURLResponse,
               httpResponse.statusCode == 200 else { return nil }
@@ -128,14 +197,18 @@ final class WeiboParser: ContentParser, @unchecked Sendable {
 
         let title = text.isEmpty ? "微博 \(statusID)" : String(text.prefix(80))
 
+        // 首张图作为封面，从正文图片列表中移除避免重复下载
+        let cover = imageURLs.first
+        let bodyImages = Array(imageURLs.dropFirst())
+
         return ParsedContent(
             title: title,
             body: text,
             author: author,
             authorID: authorID,
             publishDate: publishDate,
-            coverURL: imageURLs.first,
-            imageURLs: imageURLs,
+            coverURL: cover,
+            imageURLs: bodyImages,
             videoURL: nil,
             platformContentID: statusID,
             rawMetadata: ["type": "status"]

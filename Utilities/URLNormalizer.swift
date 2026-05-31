@@ -239,6 +239,7 @@ struct URLNormalizer {
     static func extractWeiboID(_ url: String) -> String? {
         let patterns = [
             "weibo\\.com/status/(\\d+)",
+            "weibo\\.com/\\d+/([a-zA-Z0-9]+)",
             "m\\.weibo\\.cn/detail/(\\d+)",
             "m\\.weibo\\.cn/status/(\\d+)"
         ]
