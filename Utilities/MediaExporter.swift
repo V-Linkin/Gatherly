@@ -9,7 +9,7 @@ struct MediaExporter {
     
     // MARK: - 命名生成
     
-    /// 生成导出文件名
+    /// 生成单个导出文件名
     /// 格式: {平台名}_{文件夹}_{作者}_{序号}_{日期}.{扩展名}
     static func generateExportName(
         platformName: String?,
@@ -36,6 +36,34 @@ struct MediaExporter {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyyMMdd"
         parts.append(formatter.string(from: date))
+        
+        let baseName = parts.joined(separator: "_")
+        return "\(baseName).\(fileExtension)"
+    }
+    
+    /// 生成批量导出文件名（简化版）
+    /// 格式: {自定义平台名}_{作者}_{日期}.{扩展名}
+    static func generateBatchExportName(
+        platformName: String?,
+        author: String?,
+        date: Date = Date(),
+        index: Int,
+        fileExtension: String
+    ) -> String {
+        var parts: [String] = []
+        
+        if let platform = platformName, !platform.isEmpty {
+            parts.append(sanitizeFileName(platform))
+        }
+        if let author = author, !author.isEmpty {
+            parts.append(sanitizeFileName(author))
+        }
+        
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyyMMdd"
+        parts.append(formatter.string(from: date))
+        
+        parts.append("\(index)")
         
         let baseName = parts.joined(separator: "_")
         return "\(baseName).\(fileExtension)"
@@ -158,9 +186,8 @@ struct MediaExporter {
             guard FileManager.default.fileExists(atPath: sourceURL.path) else { continue }
             
             let ext = sourceURL.pathExtension.isEmpty ? "bin" : sourceURL.pathExtension
-            let fileName = generateExportName(
+            let fileName = generateBatchExportName(
                 platformName: platformName,
-                folderName: folderName,
                 author: item.author,
                 index: index,
                 fileExtension: ext
