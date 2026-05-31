@@ -1,7 +1,7 @@
 import Foundation
 import WebKit
 
-/// 酷安解析器 - 双模式：HTTP 快速尝试 + WebView 降级（调试版本）
+/// 酷安解析器 - 双模式：HTTP 快速尝试 + WebView 降级
 final class CoolapkParser: ContentParser, @unchecked Sendable {
     
     private let session: URLSession = {
@@ -27,16 +27,10 @@ final class CoolapkParser: ContentParser, @unchecked Sendable {
     }
     
     func parse(url: URL) async throws -> ParsedContent {
-        print("🔍 [CoolapkParser] 开始解析: \(url.absoluteString)")
-        
         // 1. 先尝试 HTTP 快速获取
-        print("🔍 [CoolapkParser] 尝试 HTTP 模式...")
         if let content = try? await parseViaHTTP(url: url) {
-            print("🔍 [CoolapkParser] HTTP 模式成功")
             return content
         }
-        
-        print("🔍 [CoolapkParser] HTTP 模式失败，降级到 WebView...")
         
         // 2. HTTP 失败，使用 WKWebView 降级
         return try await parseViaWebView(url: url)
@@ -45,61 +39,33 @@ final class CoolapkParser: ContentParser, @unchecked Sendable {
     // MARK: - HTTP 模式（快速尝试）
     
     private func parseViaHTTP(url: URL) async throws -> ParsedContent? {
-        print("🔍 [HTTP模式] 开始请求")
-        
         let (data, response) = try await session.data(from: url)
         
-        guard let httpResponse = response as? HTTPURLResponse else {
-            print("🔍 [HTTP模式] 响应不是 HTTPURLResponse")
-            return nil
-        }
-        
-        print("🔍 [HTTP模式] 状态码: \(httpResponse.statusCode)")
-        
-        guard httpResponse.statusCode == 200 else {
-            print("🔍 [HTTP模式] 状态码不是 200")
+        guard let httpResponse = response as? HTTPURLResponse,
+              httpResponse.statusCode == 200 else {
             return nil
         }
         
         guard let html = String(data: data, encoding: .utf8) else {
-            print("🔍 [HTTP模式] 无法解码 HTML")
             return nil
         }
         
-        print("🔍 [HTTP模式] HTML 长度: \(html.count)")
-        
         // 检查是否有 SSR 数据
-        let hasSSR = html.contains("window.__INITIAL_STATE__=")
-        print("🔍 [HTTP模式] 是否有 SSR 数据: \(hasSSR)")
-        
-        if hasSSR {
+        if html.contains("window.__INITIAL_STATE__=") {
             if let content = extractFromSSRData(html, url: url) {
-                print("🔍 [HTTP模式] SSR 数据提取成功")
                 return content
             }
-            print("🔍 [HTTP模式] SSR 数据提取失败")
         }
         
-        // 尝试 Meta 标签提取
-        print("🔍 [HTTP模式] 尝试 Meta 标签提取...")
+        // 尝试 Meta 标签提取，但只有当有高质量内容时才返回
         if let content = extractFromMetaTags(html, url: url) {
-            print("🔍 [HTTP模式] Meta 标签提取成功")
-            print("  标题: \(content.title ?? "无")")
-            print("  正文长度: \(content.body?.count ?? 0)")
-            print("  图片数量: \(content.imageURLs.count)")
-            
-            // 检查内容质量
-            let isHighQuality = isHighQualityContent(content)
-            print("🔍 [HTTP模式] 内容质量检查: \(isHighQuality ? "高质量" : "低质量")")
-            
-            if isHighQuality {
+            // 检查内容质量 - 只有当有文章级别的内容时才返回
+            if isHighQualityContent(content) {
                 return content
             }
-        } else {
-            print("🔍 [HTTP模式] Meta 标签提取失败")
         }
         
-        print("🔍 [HTTP模式] 返回 nil，触发 WebView 降级")
+        // 内容质量不足，返回 nil 以触发 WebView 降级
         return nil
     }
     
@@ -107,27 +73,23 @@ final class CoolapkParser: ContentParser, @unchecked Sendable {
     private func isHighQualityContent(_ content: ParsedContent) -> Bool {
         // 检查标题质量（不能是页面标题）
         if let title = content.title {
-            if title == "酷安APP" || (title.contains("酷安") && title.count < 10) {
-                print("    标题可能是页面标题: \(title)")
+            if title == "酷安APP" || title.contains("酷安") && title.count < 10 {
+                // 可能是页面标题，不是文章标题
             } else if title.count > 5 {
-                print("    标题质量合格: \(title)")
                 return true
             }
         }
         
         // 检查正文质量
         if let body = content.body, body.count > 50 {
-            print("    正文质量合格，长度: \(body.count)")
             return true
         }
         
         // 检查图片数量
         if !content.imageURLs.isEmpty {
-            print("    图片数量合格: \(content.imageURLs.count)")
             return true
         }
         
-        print("    内容质量不足")
         return false
     }
     
@@ -135,39 +97,21 @@ final class CoolapkParser: ContentParser, @unchecked Sendable {
     
     @MainActor
     private func parseViaWebView(url: URL) async throws -> ParsedContent {
-        print("🔍 [WebView模式] 开始解析")
-        
         let loader = ZhihuWebLoader()
-        print("🔍 [WebView模式] 调用 ZhihuWebLoader")
-        
         guard let result = await loader.loadFullContent(from: url) else {
-            print("🔍 [WebView模式] ZhihuWebLoader 返回 nil")
             throw ParserError.parseFailed(reason: "无法加载酷安页面")
         }
         
-        print("🔍 [WebView模式] 返回结果长度: \(result.count)")
-        
         // 解析 COOLAPK_JSON: 前缀的结果
         guard result.hasPrefix("COOLAPK_JSON:") else {
-            print("🔍 [WebView模式] 没有 COOLAPK_JSON: 前缀")
-            print("  实际前缀: \(result.prefix(30))")
             throw ParserError.parseFailed(reason: "页面解析失败")
         }
         
-        print("🔍 [WebView模式] 检测到 COOLAPK_JSON: 前缀")
-        
         let jsonStr = String(result.dropFirst("COOLAPK_JSON:".count))
-        guard let jsonData = jsonStr.data(using: .utf8) else {
-            print("🔍 [WebView模式] JSON 字符串无法转换为 data")
-            throw ParserError.parseFailed(reason: "JSON 数据转换失败")
-        }
-        
-        guard let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {
-            print("🔍 [WebView模式] JSON 解析失败")
+        guard let jsonData = jsonStr.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {
             throw ParserError.parseFailed(reason: "JSON 解析失败")
         }
-        
-        print("🔍 [WebView模式] JSON 解析成功")
         
         let title = json["title"] as? String
         let author = json["author"] as? String
@@ -175,19 +119,9 @@ final class CoolapkParser: ContentParser, @unchecked Sendable {
         let images = json["images"] as? [String] ?? []
         let cover = json["cover"] as? String
         
-        print("🔍 [WebView模式] 提取结果:")
-        print("  标题: \(title ?? "无")")
-        print("  作者: \(author ?? "无")")
-        print("  正文长度: \(text?.count ?? 0)")
-        print("  图片数量: \(images.count)")
-        print("  封面: \(cover ?? "无")")
-        
         guard title != nil || text != nil || !images.isEmpty else {
-            print("🔍 [WebView模式] 没有获取到有效内容")
             throw ParserError.parseFailed(reason: "未获取到内容")
         }
-        
-        print("🔍 [WebView模式] 创建 ParsedContent 对象")
         
         return ParsedContent(
             title: title,
@@ -202,24 +136,19 @@ final class CoolapkParser: ContentParser, @unchecked Sendable {
     // MARK: - SSR 数据解析
     
     private func extractFromSSRData(_ html: String, url: URL) -> ParsedContent? {
-        print("🔍 [SSR提取] 尝试提取 SSR 数据")
-        
+        // 尝试提取 window.__INITIAL_STATE__
         if let startRange = html.range(of: "window.__INITIAL_STATE__=") {
-            print("🔍 [SSR提取] 找到 window.__INITIAL_STATE__=")
-            
             if let endRange = html.range(of: "</script>", range: startRange.upperBound..<html.endIndex) {
                 var jsonStr = String(html[startRange.upperBound..<endRange.lowerBound])
                 jsonStr = jsonStr.replacingOccurrences(of: "undefined", with: "null")
                 
                 if let jsonData = jsonStr.data(using: .utf8),
                    let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] {
-                    print("🔍 [SSR提取] SSR 数据解析成功")
                     return parseCoolapkJSON(json, url: url)
                 }
             }
         }
         
-        print("🔍 [SSR提取] SSR 数据提取失败")
         return nil
     }
     
@@ -230,6 +159,7 @@ final class CoolapkParser: ContentParser, @unchecked Sendable {
         var imageURLs: [String] = []
         var coverURL: String?
         
+        // 尝试从 data 字段提取
         if let data = json["data"] as? [String: Any] {
             title = data["title"] as? String
             desc = data["description"] as? String ?? data["content"] as? String

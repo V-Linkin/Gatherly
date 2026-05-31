@@ -182,6 +182,10 @@ final class XParser: BaseParser, @unchecked Sendable {
                 } else if let preview = firstVideo["preview"] as? String {
                     videoURL = preview
                 }
+                // 视频缩略图作为封面
+                if let thumb = firstVideo["thumbnail_url"] as? String {
+                    coverURL = thumb
+                }
             }
             
             // GIF
@@ -190,16 +194,15 @@ final class XParser: BaseParser, @unchecked Sendable {
                 if let url = firstGif["url"] as? String {
                     videoURL = url
                 }
+                if let thumb = firstGif["thumbnail_url"] as? String {
+                    coverURL = thumb
+                }
             }
         }
         
-        print("[DEBUG:XParser] photos count: \(imageURLs.count)")
-        print("[DEBUG:XParser] videoURL: \(videoURL ?? "nil")")
         if let videos = (tweet["media"] as? [String: Any])?["videos"] as? [[String: Any]],
            let first = videos.first {
-            print("[DEBUG:XParser] video keys: \(Array(first.keys))")
-            print("[DEBUG:XParser] video thumbnail: \(first["thumbnail_url"] ?? first["preview"] ?? "nil")")
-        }
+                }
         
         // 如果没有图片，检查 quote 中的媒体
         if imageURLs.isEmpty, let quote = tweet["quote"] as? [String: Any],
@@ -212,7 +215,9 @@ final class XParser: BaseParser, @unchecked Sendable {
             }
         }
         
-        coverURL = imageURLs.first ?? avatarURL
+        if coverURL == nil {
+            coverURL = imageURLs.first ?? avatarURL
+        }
         
         // 互动数据
         let likes = tweet["likes"] as? Int ?? 0
