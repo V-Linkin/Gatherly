@@ -1,4 +1,5 @@
 import Foundation
+import AVKit
 import SwiftUI
 
 struct ItemDetailView: View {
@@ -19,6 +20,7 @@ struct ItemDetailView: View {
     @State private var showMoveSheet = false
     @State private var showDeleteConfirm = false
     @State private var isImageTapEnabled = false
+    @State private var scrollMonitor: Any?
     @State private var bodyImageURLs: [String] = []
     @State private var bodyViewerDebounce = false
     @State private var localFileMap: [String: URL] = [:]
@@ -239,7 +241,54 @@ struct ItemDetailView: View {
                 }
                 .frame(height: 300)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
+                .onAppear {
+                    startScrollMonitor()
+                }
+                .onDisappear {
+                    stopScrollMonitor()
+                }
             }
+        }
+    }
+    
+    // MARK: - Scroll Monitor (视频区域滚轮转发)
+    
+    private func startScrollMonitor() {
+        scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event -> NSEvent? in
+            let _ = true
+            
+            let mouseLocation = NSEvent.mouseLocation
+            guard let window = NSApp.keyWindow ?? NSApp.windows.first else { return event }
+            let locationInWindow = window.convertPoint(fromScreen: mouseLocation)
+            
+            // 检查鼠标是否在视频播放器上
+            if let hitView = window.contentView?.hitTest(locationInWindow) {
+                var current: NSView? = hitView
+                while let v = current {
+                    if v is AVPlayerView {
+                        // 找到 AVPlayerView，向上找 ScrollView 并转发
+                        var parent: NSView? = v.superview
+                        while let p = parent {
+                            if let sv = p as? NSScrollView {
+                                sv.scrollWheel(with: event)
+                                return nil
+                            }
+                            parent = p.superview
+                        }
+                        break
+                    }
+                    current = v.superview
+                }
+            }
+            
+            return event
+        }
+    }
+    
+    private func stopScrollMonitor() {
+        if let monitor = scrollMonitor {
+            NSEvent.removeMonitor(monitor)
+            scrollMonitor = nil
         }
     }
     

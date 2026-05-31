@@ -60,7 +60,10 @@ docs/                   产品规格 + 设计文档
 - **媒体另存为**: `MediaExporter` 工具类负责命名生成和文件导出，支持右键单个导出和工具栏批量导出。单个导出命名：`{平台名}_{文件夹}_{作者}_{序号}_{日期}.{扩展名}`，无文件夹时跳过该段。批量导出时自动创建子文件夹 `{自定义平台名}_{作者}_{日期}`，媒体文件放入其中。`ExportPickerSheet` 用于批量导出时的媒体类型选择（媒体区域/正文图片/全部）。
 - **微博 AJAX API**: 微博移动页面和桌面页面均有严格反爬验证（Sina Visitor System），WKWebView 无法通过。`WeiboParser` 优先使用 `m.weibo.cn/statuses/show?id=` AJAX 接口（需 `X-Requested-With: XMLHttpRequest` 请求头），直接返回 JSON 数据，包含正文、作者、图片列表。兜底使用 HTML `render_data` 解析。
 - **小红书双模式解析**: 未登录时小红书页面无 SSR 数据，`XiaohongshuParser` 采用双模式：先尝试 HTTP（检查 `__INITIAL_STATE__`），失败则降级 WKWebView（`ZhihuWebLoader`）。JS 提取选择器包括 `#detail-desc`、`.note-text`、`[class*="content"]`，兜底遍历文本节点。封面去重：`coverURL` 取自 `imageURLs.first` 时，从 `imageURLs` 中移除第一张图片避免重复显示。
-- **酷安双模式解析**: 2026-05-31 实现酷安双模式解析器，解决反爬问题。`CoolapkParser` 采用 HTTP + WebView 双模式架构，通过 `ZhihuWebLoader` 实现完整内容提取，包括正文、图片列表、作者信息。
+- **酷安双模式解析**: `CoolapkParser` 采用 HTTP + WebView 双模式架构，通过 `ZhihuWebLoader` 实现完整内容提取，包括正文、图片列表、作者信息。
+
+- **X 解析器封面去重**: `XParser` 封面逻辑：视频推文优先用 `thumbnail_url` 作为封面，图片推文用首图（首图与封面相同时从 `imageURLs` 移除避免重复），纯文字兜底用头像。
+- **视频播放**: `VideoPlayerView`（Views/Components/VideoPlayerView.swift）使用 `AVPlayerView` 播放本地视频，支持播放/暂停/进度条/全屏。`ItemDetailView` 通过全局 `NSEvent` 监听器实现视频区域的 Shift+滚轮横向滚动（AVPlayerView 内部会拦截滚轮事件，需在 App 层面转发给外层 ScrollView）。
 
 ## 支持平台
 
@@ -78,12 +81,3 @@ docs/                   产品规格 + 设计文档
 
 1. **微博短链解析失败** — `WeiboParser` 的 `extractWeiboID` 不支持 `t.cn` 短链格式。已支持 `weibo.com/UID/POSTID` 格式。微博解析优先使用 AJAX API（`m.weibo.cn/statuses/show`）绕过反爬验证，兜底使用 HTML `render_data` 解析。
 2. **豆瓣影评正文图片未提取** — `DoubanParser` 影评正文的 `<img>` 标签被 `innerText` 忽略，正文只保留文字。暂不支持豆瓣正文插图导出。封面已修复（review 页面始终从 subject 页面获取电影海报，兜底 `og:image`）。正文区域已恢复为完整显示（移除了固定高度滚动框），备注框移至正文上方并支持实时编辑保存。
-
-## 已解决问题
-
-1. **酷安网页版反爬严格** ✅ 已解决（2026-05-31）
-   - 通过双模式解析绕过反爬验证
-   - HTTP 模式快速尝试 + WebView 模式降级
-   - 实现完整的 SSR 和 DOM 提取逻辑
-   - 支持正文内容、图片列表、作者信息提取
-

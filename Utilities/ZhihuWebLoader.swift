@@ -9,10 +9,13 @@ final class ZhihuWebLoader: NSObject, WKNavigationDelegate {
     private var continuation: CheckedContinuation<String?, Never>?
     private var loadTimeout: Task<Void, Never>?
     private var didFinishInitialLoad = false
+    private var isCompleted = false  // 防止重复调用
 
     @MainActor
     func loadFullContent(from url: URL) async -> String? {
         didFinishInitialLoad = false
+        isCompleted = false
+        
         let config = WKWebViewConfiguration()
         config.suppressesIncrementalRendering = true
 
@@ -25,8 +28,11 @@ final class ZhihuWebLoader: NSObject, WKNavigationDelegate {
 
             self.loadTimeout = Task {
                 try? await Task.sleep(for: .seconds(15))
-                if self.continuation != nil {
-                    self.finishWith(nil)
+                Task { @MainActor in
+                    if !self.isCompleted {
+                        self.isCompleted = true
+                        self.finishWith(nil)
+                    }
                 }
             }
 
@@ -310,19 +316,37 @@ final class ZhihuWebLoader: NSObject, WKNavigationDelegate {
         Task {
             do {
                 if let result = try await webView.evaluateJavaScript(js) as? String, !result.isEmpty {
-                    self.finishWith(result)
+                    Task { @MainActor in
+                        if !self.isCompleted {
+                            self.isCompleted = true
+                            self.finishWith(result)
+                        }
+                    }
                 } else {
-                    self.finishWith(nil)
+                    Task { @MainActor in
+                        if !self.isCompleted {
+                            self.isCompleted = true
+                            self.finishWith(nil)
+                        }
+                    }
                 }
             } catch {
-                self.finishWith(nil)
+                Task { @MainActor in
+                    if !self.isCompleted {
+                        self.isCompleted = true
+                        self.finishWith(nil)
+                    }
+                }
             }
         }
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
         Task { @MainActor in
-            self.finishWith(nil)
+            if !self.isCompleted {
+                self.isCompleted = true
+                self.finishWith(nil)
+            }
         }
     }
 
