@@ -57,7 +57,7 @@ docs/                   产品规格 + 设计文档
 - **图片缓存**: `ItemDetailView` 中 `bodyImageCache` 使用 `@State` 而非 `let`，确保跨视图重建时缓存实例不变（`AsyncImageView` 网络加载的图片需与 `openBodyViewer` 共享同一缓存）
 - **占位文本框**: `PlaceholderTextEditor`（Views/Components/PlaceholderTextEditor.swift）用 `NSViewRepresentable` 包装自定义 `PlaceholderNSTextView`，通过 `draw(_:)` 原生绘制占位文字，确保与光标精确对齐。`PassthroughLabel` 子类重写 `hitTest` 返回 nil，使点击穿透到 NSTextView。
 - **豆瓣影评解析**: 服务端返回反爬挑战页（JS proof-of-work），HTTP 请求无法获取真实内容。`DoubanParser` 通过 WKWebView 解决挑战后提取内容，合并时优先使用 webview 结果（需排除模板代码 `{{=`）。封面始终从 subject 页面获取电影海报。
-- **媒体另存为**: `MediaExporter` 工具类负责命名生成和文件导出，支持右键单个导出和工具栏批量导出。命名规则：`{平台名}_{文件夹}_{作者}_{序号}_{日期}.{扩展名}`，无文件夹时跳过该段。`ExportPickerSheet` 用于批量导出时的媒体类型选择。
+- **媒体另存为**: `MediaExporter` 工具类负责命名生成和文件导出，支持右键单个导出和工具栏批量导出。单个导出命名：`{平台名}_{文件夹}_{作者}_{序号}_{日期}.{扩展名}`，无文件夹时跳过该段。批量导出时自动创建子文件夹 `{自定义平台名}_{作者}_{日期}`，媒体文件放入其中。`ExportPickerSheet` 用于批量导出时的媒体类型选择（媒体区域/正文图片/全部）。
 - **微博 AJAX API**: 微博移动页面和桌面页面均有严格反爬验证（Sina Visitor System），WKWebView 无法通过。`WeiboParser` 优先使用 `m.weibo.cn/statuses/show?id=` AJAX 接口（需 `X-Requested-With: XMLHttpRequest` 请求头），直接返回 JSON 数据，包含正文、作者、图片列表。兜底使用 HTML `render_data` 解析。
 - **小红书双模式解析**: 未登录时小红书页面无 SSR 数据，`XiaohongshuParser` 采用双模式：先尝试 HTTP（检查 `__INITIAL_STATE__`），失败则降级 WKWebView（`ZhihuWebLoader`）。JS 提取选择器包括 `#detail-desc`、`.note-text`、`[class*="content"]`，兜底遍历文本节点。封面去重：`coverURL` 取自 `imageURLs.first` 时，从 `imageURLs` 中移除第一张图片避免重复显示。
 
