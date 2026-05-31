@@ -124,14 +124,12 @@ struct ItemDetailView: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
-                .help("编辑内容信息")
                 
                 Button { showMoveSheet = true } label: {
                     Label("移动", systemImage: "folder")
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
-                .help("移动到其他文件夹")
                 
                 Button {
                     if bodyImageURLs.isEmpty {
@@ -152,7 +150,6 @@ struct ItemDetailView: View {
                 .buttonStyle(.bordered)
                 .controlSize(.small)
                 .disabled(mediaAssets.isEmpty && bodyImageURLs.isEmpty)
-                .help("导出媒体文件到本地")
                 
                 Button { showDeleteConfirm = true } label: {
                     Label("删除", systemImage: "trash")
@@ -160,7 +157,6 @@ struct ItemDetailView: View {
                 .buttonStyle(.bordered)
                 .controlSize(.small)
                 .foregroundStyle(.red)
-                .help("移入回收站")
             }
         }
     }
