@@ -57,8 +57,40 @@ final class CoolapkParser: ContentParser, @unchecked Sendable {
             }
         }
         
-        // 回退到 Meta 标签提取
-        return extractFromMetaTags(html, url: url)
+        // 尝试 Meta 标签提取，但只有当有高质量内容时才返回
+        if let content = extractFromMetaTags(html, url: url) {
+            // 检查内容质量 - 只有当有文章级别的内容时才返回
+            if isHighQualityContent(content) {
+                return content
+            }
+        }
+        
+        // 内容质量不足，返回 nil 以触发 WebView 降级
+        return nil
+    }
+    
+    // 检查内容质量
+    private func isHighQualityContent(_ content: ParsedContent) -> Bool {
+        // 检查标题质量（不能是页面标题）
+        if let title = content.title {
+            if title == "酷安APP" || title.contains("酷安") && title.count < 10 {
+                // 可能是页面标题，不是文章标题
+            } else if title.count > 5 {
+                return true
+            }
+        }
+        
+        // 检查正文质量
+        if let body = content.body, body.count > 50 {
+            return true
+        }
+        
+        // 检查图片数量
+        if !content.imageURLs.isEmpty {
+            return true
+        }
+        
+        return false
     }
     
     // MARK: - WebView 模式（稳定降级）
@@ -157,7 +189,7 @@ final class CoolapkParser: ContentParser, @unchecked Sendable {
     
     // MARK: - Meta 标签提取（基础信息）
     
-    private func extractFromMetaTags(_ html: String, url: URL) -> ParsedContent {
+    private func extractFromMetaTags(_ html: String, url: URL) -> ParsedContent? {
         let title = extractMeta(html, property: "og:title")
             ?? extractMeta(html, name: "title")
             ?? extractMeta(html, property: "twitter:title")
@@ -173,13 +205,18 @@ final class CoolapkParser: ContentParser, @unchecked Sendable {
         // 尝试从 HTML 中提取作者
         let htmlAuthor = extractHTMLAuthor(html)
         
-        return ParsedContent(
-            title: title,
-            body: desc,
-            author: author ?? htmlAuthor,
-            coverURL: cover,
-            platformContentID: extractContentID(from: url)
-        )
+        // 只有当有实质性内容时才返回
+        if title != nil || desc != nil || cover != nil || author != nil || htmlAuthor != nil {
+            return ParsedContent(
+                title: title,
+                body: desc,
+                author: author ?? htmlAuthor,
+                coverURL: cover,
+                platformContentID: extractContentID(from: url)
+            )
+        }
+        
+        return nil
     }
     
     private func extractHTMLAuthor(_ html: String) -> String? {
