@@ -237,7 +237,7 @@ final class ZhihuWebLoader: NSObject, WKNavigationDelegate {
                         'title'
                     ];
                     
-                    // 先尝试精确的选择器
+                    var foundTitle = false;
                     for (var i = 0; i < titleSelectors.length; i++) {
                         var titleEl = document.querySelector(titleSelectors[i]);
                         if (titleEl && titleEl.innerText && titleEl.innerText.trim().length > 0) {
@@ -245,13 +245,14 @@ final class ZhihuWebLoader: NSObject, WKNavigationDelegate {
                             // 过滤掉页面标题"酷安APP"
                             if (titleText !== '酷安APP' && titleText.length > 5) {
                                 coolapkResult.title = titleText;
+                                foundTitle = true;
                                 break;
                             }
                         }
                     }
                     
                     // 如果还没找到，尝试包含title的选择器（但排除酷安APP）
-                    if (!coolapkResult.title) {
+                    if (!foundTitle) {
                         var titleEls = document.querySelectorAll('[class*="title"]');
                         for (var i = 0; i < titleEls.length; i++) {
                             var titleEl = titleEls[i];

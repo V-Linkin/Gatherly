@@ -194,7 +194,22 @@ struct ItemDetailView: View {
                         ForEach(Array(mediaAssets.enumerated()), id: \.element.id) { index, asset in
                             if let path = asset.localPath {
                                 let url = DataDirectory.media.appendingPathComponent(path)
-                                if let nsImage = NSImage(contentsOf: url) {
+                                if asset.type == .video {
+                                    VideoPlayerView(url: url)
+                                        .frame(height: 280)
+                                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                                        .contextMenu {
+                                            Button {
+                                                let success = MediaExporter.exportSingle(asset: asset, item: item, from: appState)
+                                                if success {
+                                                    appState.showToast("导出成功")
+                                                }
+                                            } label: {
+                                                Label("另存为", systemImage: "square.and.arrow.down")
+                                            }
+                                            .disabled(asset.localPath == nil)
+                                        }
+                                } else if let nsImage = NSImage(contentsOf: url) {
                                     Image(nsImage: nsImage)
                                         .resizable()
                                         .aspectRatio(contentMode: .fit)

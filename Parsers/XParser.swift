@@ -92,6 +92,7 @@ final class XParser: BaseParser, @unchecked Sendable {
             let fileName = "video.mp4"
             let localPath = itemDir.appendingPathComponent(fileName)
             if await downloadFile(from: url, to: localPath) {
+                let fsize = (try? fileManager.attributesOfItem(atPath: localPath.path)[.size] as? Int64) ?? 0
                 let fileSize = (try? fileManager.attributesOfItem(atPath: localPath.path)[.size] as? Int64) ?? 0
                 let asset = MediaAsset(
                     itemID: itemID, type: .video,
@@ -110,6 +111,7 @@ final class XParser: BaseParser, @unchecked Sendable {
                 try MediaRepository().insert(asset)
                 assets.append(asset)
             }
+        } else {
         }
         
         // 如果没有图片也没有视频，下载作者头像作为封面
