@@ -226,6 +226,11 @@ final class XParser: BaseParser, @unchecked Sendable {
             metadata["screenName"] = authorID
         }
         
+        // 封面去重：如果封面等于首张图片，从图片列表中移除首张
+        if let cover = coverURL, cover == imageURLs.first {
+            imageURLs.removeFirst()
+        }
+        
         // 标题取正文前 50 字
         let title = fullText.map { String($0.prefix(50)) }
         

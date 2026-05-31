@@ -28,6 +28,7 @@ targets:
       - path: .
         excludes:
           - project.yml
+          - project_updated.yml
           - Archiver.xcodeproj
           - Archiver.xcworkspace
           - ".DS_Store"
@@ -40,6 +41,18 @@ targets:
       - package: GRDB
     scheme:
       testTargets: []
+
+  ArchiverTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: Tests
+    dependencies:
+      - target: Archiver
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.archiver.app.tests
+        INFOPLIST_FILE: Tests/Info.plist
 
 packages:
   GRDB:

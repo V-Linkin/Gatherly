@@ -60,12 +60,7 @@ docs/                   产品规格 + 设计文档
 - **媒体另存为**: `MediaExporter` 工具类负责命名生成和文件导出，支持右键单个导出和工具栏批量导出。单个导出命名：`{平台名}_{文件夹}_{作者}_{序号}_{日期}.{扩展名}`，无文件夹时跳过该段。批量导出时自动创建子文件夹 `{自定义平台名}_{作者}_{日期}`，媒体文件放入其中。`ExportPickerSheet` 用于批量导出时的媒体类型选择（媒体区域/正文图片/全部）。
 - **微博 AJAX API**: 微博移动页面和桌面页面均有严格反爬验证（Sina Visitor System），WKWebView 无法通过。`WeiboParser` 优先使用 `m.weibo.cn/statuses/show?id=` AJAX 接口（需 `X-Requested-With: XMLHttpRequest` 请求头），直接返回 JSON 数据，包含正文、作者、图片列表。兜底使用 HTML `render_data` 解析。
 - **小红书双模式解析**: 未登录时小红书页面无 SSR 数据，`XiaohongshuParser` 采用双模式：先尝试 HTTP（检查 `__INITIAL_STATE__`），失败则降级 WKWebView（`ZhihuWebLoader`）。JS 提取选择器包括 `#detail-desc`、`.note-text`、`[class*="content"]`，兜底遍历文本节点。封面去重：`coverURL` 取自 `imageURLs.first` 时，从 `imageURLs` 中移除第一张图片避免重复显示。
-
-
-- **Markdown 编辑器**: `MarkdownEditor`（Views/Components/MarkdownEditor.swift）提供工具栏（加粗/斜体/标题/列表/链接/代码/引用）和编辑/预览切换。`EditItemView` 中正文和备注均使用此组件。
-- **URL 自动识别**: `URLNormalizer.extractURLs(from:)` 使用 `NSDataDetector` 从混合文字中提取 URL。首页粘贴框支持用户粘贴含分享文案的文本（如小红书分享卡片），自动提取链接并导入。
-- **最近导入 7 天过滤**: `ItemRepository.fetchRecent()` 仅返回 7 天内导入的内容。**关键**: `import_date` 列存储 Unix 时间戳（REAL 类型），查询时必须使用 `Date.timeIntervalSince1970` 转换，不能直接传 `Date` 对象。
-- **平台创建自动归类**: `NewCustomPlatformSheet` 创建自定义平台后，自动扫描「未分类」内容（`customPlatformID == nil`），通过 `URLNormalizer.recognizePlatform` 匹配 URL，将匹配内容自动分配到新平台。
+- **酷安双模式解析**: 2026-05-31 实现酷安双模式解析器，解决反爬问题。`CoolapkParser` 采用 HTTP + WebView 双模式架构，通过 `ZhihuWebLoader` 实现完整内容提取，包括正文、图片列表、作者信息。
 
 ## 支持平台
 
@@ -81,6 +76,14 @@ docs/                   产品规格 + 设计文档
 
 ## 已知问题（待修复）
 
-1. **酷安网页版反爬严格** — `CoolapkParser` 通过 HTTP 请求获取的页面不包含实际内容（返回"请用酷安APP扫码"提示页），`__INITIAL_STATE__` 和 OG tags 均不存在。当前仅能提取基础 meta 信息。需要 WKWebView 或 Playwright 等方案才能获取完整内容。
-2. **微博短链解析失败** — `WeiboParser` 的 `extractWeiboID` 不支持 `t.cn` 短链格式。已支持 `weibo.com/UID/POSTID` 格式。微博解析优先使用 AJAX API（`m.weibo.cn/statuses/show`）绕过反爬验证，兜底使用 HTML `render_data` 解析。
-3. **豆瓣影评正文图片未提取** — `DoubanParser` 影评正文的 `<img>` 标签被 `innerText` 忽略，正文只保留文字。暂不支持豆瓣正文插图导出。封面已修复（review 页面始终从 subject 页面获取电影海报，兜底 `og:image`）。正文区域已恢复为完整显示（移除了固定高度滚动框），备注框移至正文上方并支持实时编辑保存。
+1. **微博短链解析失败** — `WeiboParser` 的 `extractWeiboID` 不支持 `t.cn` 短链格式。已支持 `weibo.com/UID/POSTID` 格式。微博解析优先使用 AJAX API（`m.weibo.cn/statuses/show`）绕过反爬验证，兜底使用 HTML `render_data` 解析。
+2. **豆瓣影评正文图片未提取** — `DoubanParser` 影评正文的 `<img>` 标签被 `innerText` 忽略，正文只保留文字。暂不支持豆瓣正文插图导出。封面已修复（review 页面始终从 subject 页面获取电影海报，兜底 `og:image`）。正文区域已恢复为完整显示（移除了固定高度滚动框），备注框移至正文上方并支持实时编辑保存。
+
+## 已解决问题
+
+1. **酷安网页版反爬严格** ✅ 已解决（2026-05-31）
+   - 通过双模式解析绕过反爬验证
+   - HTTP 模式快速尝试 + WebView 模式降级
+   - 实现完整的 SSR 和 DOM 提取逻辑
+   - 支持正文内容、图片列表、作者信息提取
+

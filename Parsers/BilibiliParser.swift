@@ -1,6 +1,6 @@
 import Foundation
 
-/// B站解析器
+/// B站解析器 — 使用 AJAX API 获取视频数据
 final class BilibiliParser: BaseParser, @unchecked Sendable {
     
     init() {
@@ -25,53 +25,73 @@ final class BilibiliParser: BaseParser, @unchecked Sendable {
     override func parse(url: URL) async throws -> ParsedContent {
         let resolvedURL = try await resolveShortURL(url)
         
-        let (data, response) = try await session.data(from: resolvedURL)
+        guard let bvid = extractBVID(from: resolvedURL) else {
+            throw ParserError.parseFailed(reason: "无法提取 B站视频 ID")
+        }
+        
+        let apiURLString = "https://api.bilibili.com/x/web-interface/view?bvid=\(bvid)"
+        guard let apiURL = URL(string: apiURLString) else {
+            throw ParserError.parseFailed(reason: "API URL 无效")
+        }
+        
+        let (data, response) = try await session.data(from: apiURL)
         
         guard let httpResponse = response as? HTTPURLResponse,
               httpResponse.statusCode == 200 else {
-            throw ParserError.parseFailed(reason: "HTTP 请求失败")
+            throw ParserError.parseFailed(reason: "API 请求失败")
         }
         
-        guard let html = String(data: data, encoding: .utf8) else {
-            throw ParserError.parseFailed(reason: "无法解析 HTML")
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let responseData = json["data"] as? [String: Any] else {
+            throw ParserError.parseFailed(reason: "API 返回数据格式错误")
         }
         
-        let title = extractMeta(html, property: "og:title") ?? extractTitle(from: html) ?? "未知标题"
-        let description = extractMeta(html, property: "og:description") ?? ""
-        let coverURL = extractMeta(html, property: "og:image")
-        let author = extractMeta(html, name: "author") ?? "未知作者"
+        let title = responseData["title"] as? String ?? "未知标题"
+        let description = responseData["desc"] as? String ?? ""
+        var coverURL = responseData["pic"] as? String
         
-        // 尝试从 HTML 中提取图片
-        var imageURLs: [String] = []
-        let imagePattern = "<img[^>]+src=\"([^\"]+)\""
-        if let regex = try? NSRegularExpression(pattern: imagePattern, options: .caseInsensitive) {
-            let matches = regex.matches(in: html, range: NSRange(html.startIndex..., in: html))
-            for match in matches {
-                if let range = Range(match.range(at: 1), in: html) {
-                    let imageURL = String(html[range])
-                    if imageURL.contains("bilibili") || imageURL.contains("http") {
-                        imageURLs.append(imageURL)
-                    }
-                }
-            }
+        if let cover = coverURL, cover.hasPrefix("//") {
+            coverURL = "https:" + cover
+        } else if let cover = coverURL, cover.hasPrefix("http://") {
+            coverURL = cover.replacingOccurrences(of: "http://", with: "https://")
+        }
+        
+        var author = "未知作者"
+        if let owner = responseData["owner"] as? [String: Any],
+           let name = owner["name"] as? String {
+            author = name
+        }
+        
+        var publishDate: Date?
+        if let pubdate = responseData["pubdate"] as? TimeInterval {
+            publishDate = Date(timeIntervalSince1970: pubdate)
         }
         
         return ParsedContent(
             title: title,
-            body: description,
+            body: description.isEmpty ? nil : description,
             author: author,
+            authorID: nil,
+            publishDate: publishDate,
             coverURL: coverURL,
-            imageURLs: imageURLs,
-            platformContentID: extractContentID(from: url)
+            imageURLs: [],
+            videoURL: nil,
+            platformContentID: bvid
         )
     }
     
-    private func extractTitle(from html: String) -> String? {
-        let pattern = "<title[^>]*>([^<]+)</title>"
-        if let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive),
-           let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
-           let range = Range(match.range(at: 1), in: html) {
-            return String(html[range]).trimmingCharacters(in: .whitespacesAndNewlines)
+    private func extractBVID(from url: URL) -> String? {
+        let urlString = url.absoluteString
+        let patterns = [
+            "bilibili\\.com/video/(BV[a-zA-Z0-9]+)",
+            "bilibili\\.com/video/(av\\d+)"
+        ]
+        for pattern in patterns {
+            if let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive),
+               let match = regex.firstMatch(in: urlString, range: NSRange(urlString.startIndex..., in: urlString)),
+               let range = Range(match.range(at: 1), in: urlString) {
+                return String(urlString[range])
+            }
         }
         return nil
     }
