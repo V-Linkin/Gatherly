@@ -1,86 +1,68 @@
 import SwiftUI
-import AVFoundation
-import AppKit
+import AVKit
 
-/// 视频播放器视图 - 用 AVPlayerLayer 实现，完全控制事件处理
+/// 视频播放器视图
 struct VideoPlayerView: NSViewRepresentable {
     let url: URL
     
-    func makeNSView(context: Context) -> VideoPlayerNSView {
-        let view = VideoPlayerNSView(frame: NSRect(x: 0, y: 0, width: 400, height: 280))
-        view.loadVideo(url: url)
-        print("[DEBUG:VideoPlayer] makeNSView url=\(url.path)")
-        return view
+    func makeNSView(context: Context) -> AVPlayerView {
+        let playerView = AVPlayerView()
+        playerView.controlsStyle = .inline
+        playerView.showsFullScreenToggleButton = true
+        playerView.videoGravity = .resizeAspect
+        playerView.player = AVPlayer(url: url)
+        
+        context.coordinator.startMonitoring(playerView: playerView)
+        
+        return playerView
     }
     
-    func updateNSView(_ nsView: VideoPlayerNSView, context: Context) {}
+    func updateNSView(_ nsView: AVPlayerView, context: Context) {}
+    
+    func makeCoordinator() -> ScrollCoordinator {
+        ScrollCoordinator()
+    }
 }
 
-/// 底层 NSView - 使用 AVPlayerLayer，忽略滚轮事件
-class VideoPlayerNSView: NSView {
-    private var player: AVPlayer?
-    private var playerLayer: AVPlayerLayer?
-    private var hasPlayed = false
+/// 全局滚轮事件监听 - 鼠标在视频上时转发滚轮给外层 ScrollView
+@MainActor
+final class ScrollCoordinator {
+    private var monitor: Any?
+    private weak var currentPlayerView: AVPlayerView?
     
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        wantsLayer = true
-        layer?.backgroundColor = NSColor.black.cgColor
-        print("[DEBUG:VideoPlayerNSView] init frame=\(frameRect)")
-    }
-    
-    required init?(coder: NSCoder) {
-        super.init(coder: coder)
-        wantsLayer = true
-    }
-    
-    func loadVideo(url: URL) {
-        print("[DEBUG:VideoPlayerNSView] loadVideo \(url.path)")
-        let player = AVPlayer(url: url)
-        self.player = player
-        
-        let playerLayer = AVPlayerLayer(player: player)
-        playerLayer.videoGravity = .resizeAspect
-        playerLayer.backgroundColor = NSColor.black.cgColor
-        playerLayer.frame = self.bounds
-        self.layer?.addSublayer(playerLayer)
-        self.playerLayer = playerLayer
-        
-        print("[DEBUG:VideoPlayerNSView] layer bounds=\(self.bounds), playerLayer frame=\(playerLayer.frame)")
-    }
-    
-    override func layout() {
-        super.layout()
-        print("[DEBUG:VideoPlayerNSView] layout bounds=\(bounds)")
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        playerLayer?.frame = bounds
-        CATransaction.commit()
-    }
-    
-    /// 忽略滚轮事件
-    override func scrollWheel(with event: NSEvent) {
-        self.nextResponder?.scrollWheel(with: event)
-    }
-    
-    /// 鼠标点击时播放/暂停
-    override func mouseDown(with event: NSEvent) {
-        if let player = player {
-            if hasPlayed {
-                if player.timeControlStatus == .playing {
-                    player.pause()
-                } else {
-                    player.play()
+    nonisolated func startMonitoring(playerView: AVPlayerView) {
+        Task { @MainActor in
+            self.currentPlayerView = playerView
+            
+            self.monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event -> NSEvent? in
+                guard let self = self,
+                      let pv = self.currentPlayerView,
+                      let window = pv.window else { return event }
+                
+                let mouseLocation = NSEvent.mouseLocation
+                let locationInWindow = window.convertPoint(fromScreen: mouseLocation)
+                let locationInView = pv.convert(locationInWindow, from: nil)
+                
+                guard pv.bounds.contains(locationInView) else { return event }
+                
+                // 鼠标在视频上，查找外层 ScrollView
+                var current: NSView? = pv
+                while let v = current {
+                    if let sv = v as? NSScrollView {
+                        sv.scrollWheel(with: event)
+                        return nil
+                    }
+                    current = v.superview
                 }
-            } else {
-                player.seek(to: .zero)
-                player.play()
-                hasPlayed = true
+                
+                return event
             }
         }
     }
     
     deinit {
-        player?.pause()
+        if let monitor = monitor {
+            NSEvent.removeMonitor(monitor)
+        }
     }
 }

@@ -99,12 +99,12 @@ final class CoolapkParser: ContentParser, @unchecked Sendable {
     private func parseViaWebView(url: URL) async throws -> ParsedContent {
         let loader = ZhihuWebLoader()
         guard let result = await loader.loadFullContent(from: url) else {
-            throw ParserError.parseFailed(reason: "无法加载酷安页面")
+            throw ParserError.parseFailed(reason: "无法加载酷安页面（WebView 返回 nil）")
         }
         
         // 解析 COOLAPK_JSON: 前缀的结果
         guard result.hasPrefix("COOLAPK_JSON:") else {
-            throw ParserError.parseFailed(reason: "页面解析失败")
+            throw ParserError.parseFailed(reason: "页面解析失败（缺少 COOLAPK_JSON 前缀）")
         }
         
         let jsonStr = String(result.dropFirst("COOLAPK_JSON:".count))
@@ -120,7 +120,7 @@ final class CoolapkParser: ContentParser, @unchecked Sendable {
         let cover = json["cover"] as? String
         
         guard title != nil || text != nil || !images.isEmpty else {
-            throw ParserError.parseFailed(reason: "未获取到内容")
+            throw ParserError.parseFailed(reason: "未获取到内容（标题、正文、图片都为空）")
         }
         
         return ParsedContent(

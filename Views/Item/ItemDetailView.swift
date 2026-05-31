@@ -196,7 +196,7 @@ struct ItemDetailView: View {
                                 let url = DataDirectory.media.appendingPathComponent(path)
                                 if asset.type == .video {
                                     VideoPlayerView(url: url)
-                                        .frame(height: 280)
+                                        .frame(width: 400, height: 280)
                                         .clipShape(RoundedRectangle(cornerRadius: 8))
                                         .contextMenu {
                                             Button {
