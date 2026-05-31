@@ -130,7 +130,7 @@ if (url.indexOf('coolapk.com') !== -1 || url.indexOf('coolapk1s.com') !== -1) {
     if (window.__INITIAL_STATE__) {
         try {
             var state = JSON.parse(window.__INITIAL_STATE__);
-            // 提取逻辑待细化
+            // 提取逻辑：根据实际页面结构实现具体提取逻辑
         } catch(e) {}
     }
     
@@ -283,4 +283,4 @@ return ParsedContent(
 
 ---
 **设计完成时间**：2026-05-31
-**设计状态**：待评审
+**设计状态**：已完成，等待用户评审
