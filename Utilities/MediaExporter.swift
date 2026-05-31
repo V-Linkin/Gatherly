@@ -127,13 +127,37 @@ struct MediaExporter {
     ) -> Int {
         guard !assets.isEmpty else { return 0 }
         
-        guard let destDir = FilePicker.pickExportFolder() else {
+        guard let baseDir = FilePicker.pickExportFolder() else {
             logger.info("用户取消选择文件夹")
             return 0
         }
         
         let platformName = getPlatformName(for: item, appState: appState)
         let folderName = getFolderName(for: item, appState: appState)
+        
+        // 创建子文件夹: 自定义平台名_作者_日期
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyyMMdd"
+        let dateStr = formatter.string(from: Date())
+        
+        var folderParts: [String] = []
+        if let platform = platformName, !platform.isEmpty {
+            folderParts.append(sanitizeFileName(platform))
+        }
+        if let author = item.author, !author.isEmpty {
+            folderParts.append(sanitizeFileName(author))
+        }
+        folderParts.append(dateStr)
+        
+        let folderNameStr = folderParts.joined(separator: "_")
+        let destDir = baseDir.appendingPathComponent(folderNameStr, isDirectory: true)
+        
+        do {
+            try FileManager.default.createDirectory(at: destDir, withIntermediateDirectories: true)
+        } catch {
+            logger.error("创建导出文件夹失败: \(error.localizedDescription, privacy: .public)")
+            return 0
+        }
         
         // 先按类型排序：图片在前，视频在后
         var sortedAssets: [MediaAsset] = []
@@ -192,13 +216,37 @@ struct MediaExporter {
     ) -> Int {
         guard !imageURLs.isEmpty else { return 0 }
         
-        guard let destDir = FilePicker.pickExportFolder() else {
+        guard let baseDir = FilePicker.pickExportFolder() else {
             logger.info("用户取消选择文件夹")
             return 0
         }
         
         let platformName = getPlatformName(for: item, appState: appState)
         let folderName = getFolderName(for: item, appState: appState)
+        
+        // 创建子文件夹: 自定义平台名_作者_日期
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyyMMdd"
+        let dateStr = formatter.string(from: Date())
+        
+        var folderParts: [String] = []
+        if let platform = platformName, !platform.isEmpty {
+            folderParts.append(sanitizeFileName(platform))
+        }
+        if let author = item.author, !author.isEmpty {
+            folderParts.append(sanitizeFileName(author))
+        }
+        folderParts.append(dateStr)
+        
+        let folderNameStr = folderParts.joined(separator: "_")
+        let destDir = baseDir.appendingPathComponent(folderNameStr, isDirectory: true)
+        
+        do {
+            try FileManager.default.createDirectory(at: destDir, withIntermediateDirectories: true)
+        } catch {
+            logger.error("创建导出文件夹失败: \(error.localizedDescription, privacy: .public)")
+            return 0
+        }
         
         var successCount = 0
         var index = 1
