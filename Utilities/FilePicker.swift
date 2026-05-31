@@ -44,3 +44,18 @@ struct FilePicker {
         return panel.urls
     }
 }
+
+extension FilePicker {
+    static func pickExportFolder() -> URL? {
+        let panel = NSOpenPanel()
+        panel.title = "选择保存位置"
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.directoryURL = FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask).first
+
+        guard panel.runModal() == .OK else { return nil }
+        return panel.url
+    }
+}

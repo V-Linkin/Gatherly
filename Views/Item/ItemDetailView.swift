@@ -25,6 +25,7 @@ struct ItemDetailView: View {
     @State private var bodyImageCache = ImageCache()
     @State private var editableRemark: String = ""
     @State private var remarkDebounce = false
+    @State private var showExportPicker = false
     
     var body: some View {
         return Group {
@@ -60,6 +61,45 @@ struct ItemDetailView: View {
                 bodyImageURLs = Self.extractImageURLs(from: body)
             }
         }
+        .sheet(isPresented: $showExportPicker) {
+            ExportPickerSheet(
+                hasBodyImages: !bodyImageURLs.isEmpty,
+                mediaAssetCount: mediaAssets.count,
+                bodyImageCount: bodyImageURLs.count,
+                isPresented: $showExportPicker
+            ) { selection in
+                guard let currentItem = item else { return }
+                switch selection {
+                case .mediaOnly:
+                    let count = MediaExporter.exportBatch(assets: mediaAssets, item: currentItem, from: appState)
+                    if count > 0 {
+                        appState.showToast("成功导出 \(count) 个文件")
+                    }
+                case .bodyImagesOnly:
+                    let count = MediaExporter.exportBodyImages(
+                        imageURLs: bodyImageURLs,
+                        imageCache: bodyImageCache,
+                        item: currentItem,
+                        from: appState
+                    )
+                    if count > 0 {
+                        appState.showToast("成功导出 \(count) 个文件")
+                    }
+                case .all:
+                    let mediaCount = MediaExporter.exportBatch(assets: mediaAssets, item: currentItem, from: appState)
+                    let bodyCount = MediaExporter.exportBodyImages(
+                        imageURLs: bodyImageURLs,
+                        imageCache: bodyImageCache,
+                        item: currentItem,
+                        from: appState
+                    )
+                    let total = mediaCount + bodyCount
+                    if total > 0 {
+                        appState.showToast("成功导出 \(total) 个文件")
+                    }
+                }
+            }
+        }
     }
     
     private func detailContent(_ item: Item) -> some View {
@@ -90,6 +130,26 @@ struct ItemDetailView: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
+                
+                Button {
+                    if bodyImageURLs.isEmpty {
+                        let count = MediaExporter.exportBatch(
+                            assets: mediaAssets,
+                            item: item,
+                            from: appState
+                        )
+                        if count > 0 {
+                            appState.showToast("成功导出 \(count) 个文件")
+                        }
+                    } else {
+                        showExportPicker = true
+                    }
+                } label: {
+                    Label("导出", systemImage: "square.and.arrow.down")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(mediaAssets.isEmpty && bodyImageURLs.isEmpty)
                 
                 Button { showDeleteConfirm = true } label: {
                     Label("删除", systemImage: "trash")
@@ -133,6 +193,17 @@ struct ItemDetailView: View {
                                             if isImageTapEnabled {
                                                 openCoverViewer(from: index)
                                             }
+                                        }
+                                        .contextMenu {
+                                            Button {
+                                                let success = MediaExporter.exportSingle(asset: asset, item: item, from: appState)
+                                                if success {
+                                                    appState.showToast("导出成功")
+                                                }
+                                            } label: {
+                                                Label("另存为", systemImage: "square.and.arrow.down")
+                                            }
+                                            .disabled(asset.localPath == nil)
                                         }
                                 }
                             }
