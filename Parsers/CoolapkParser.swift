@@ -1,7 +1,8 @@
 import Foundation
+import WebKit
 
-/// 酷安解析器
-final class CoolapkParser: ContentParser {
+/// 酷安解析器 - 双模式：HTTP 快速尝试 + WebView 降级
+final class CoolapkParser: ContentParser, @unchecked Sendable {
     
     private let session: URLSession = {
         let config = URLSessionConfiguration.default
@@ -26,23 +27,195 @@ final class CoolapkParser: ContentParser {
     }
     
     func parse(url: URL) async throws -> ParsedContent {
+        // 1. 先尝试 HTTP 快速获取
+        if let content = try? await parseViaHTTP(url: url) {
+            return content
+        }
+        
+        // 2. HTTP 失败，使用 WKWebView 降级
+        return try await parseViaWebView(url: url)
+    }
+    
+    // MARK: - HTTP 模式（快速尝试）
+    
+    private func parseViaHTTP(url: URL) async throws -> ParsedContent? {
         let (data, response) = try await session.data(from: url)
         
         guard let httpResponse = response as? HTTPURLResponse,
               httpResponse.statusCode == 200 else {
-            throw ParserError.parseFailed(reason: "HTTP 请求失败")
+            return nil
         }
         
         guard let html = String(data: data, encoding: .utf8) else {
-            throw ParserError.parseFailed(reason: "无法解码页面内容")
+            return nil
         }
         
-        if let content = extractFromSSRData(html, url: url) {
-            return content
+        // 检查是否有 SSR 数据
+        if html.contains("window.__INITIAL_STATE__=") {
+            if let content = extractFromSSRData(html, url: url) {
+                return content
+            }
         }
         
+        // 回退到 Meta 标签提取
         return extractFromMetaTags(html, url: url)
     }
+    
+    // MARK: - WebView 模式（稳定降级）
+    
+    @MainActor
+    private func parseViaWebView(url: URL) async throws -> ParsedContent {
+        let loader = ZhihuWebLoader()
+        guard let result = await loader.loadFullContent(from: url) else {
+            throw ParserError.parseFailed(reason: "无法加载酷安页面")
+        }
+        
+        // 解析 COOLAPK_JSON: 前缀的结果
+        guard result.hasPrefix("COOLAPK_JSON:") else {
+            throw ParserError.parseFailed(reason: "页面解析失败")
+        }
+        
+        let jsonStr = String(result.dropFirst("COOLAPK_JSON:".count))
+        guard let jsonData = jsonStr.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {
+            throw ParserError.parseFailed(reason: "JSON 解析失败")
+        }
+        
+        let title = json["title"] as? String
+        let author = json["author"] as? String
+        let text = json["text"] as? String
+        let images = json["images"] as? [String] ?? []
+        let cover = json["cover"] as? String
+        
+        guard title != nil || text != nil || !images.isEmpty else {
+            throw ParserError.parseFailed(reason: "未获取到内容")
+        }
+        
+        return ParsedContent(
+            title: title,
+            body: text,
+            author: author,
+            coverURL: cover,
+            imageURLs: images,
+            platformContentID: extractContentID(from: url)
+        )
+    }
+    
+    // MARK: - SSR 数据解析
+    
+    private func extractFromSSRData(_ html: String, url: URL) -> ParsedContent? {
+        // 尝试提取 window.__INITIAL_STATE__
+        if let startRange = html.range(of: "window.__INITIAL_STATE__=") {
+            if let endRange = html.range(of: "</script>", range: startRange.upperBound..<html.endIndex) {
+                var jsonStr = String(html[startRange.upperBound..<endRange.lowerBound])
+                jsonStr = jsonStr.replacingOccurrences(of: "undefined", with: "null")
+                
+                if let jsonData = jsonStr.data(using: .utf8),
+                   let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] {
+                    return parseCoolapkJSON(json, url: url)
+                }
+            }
+        }
+        
+        return nil
+    }
+    
+    private func parseCoolapkJSON(_ json: [String: Any], url: URL) -> ParsedContent? {
+        var title: String?
+        var desc: String?
+        var author: String?
+        var imageURLs: [String] = []
+        var coverURL: String?
+        
+        // 尝试从 data 字段提取
+        if let data = json["data"] as? [String: Any] {
+            title = data["title"] as? String
+            desc = data["description"] as? String ?? data["content"] as? String
+            
+            if let user = data["user"] as? [String: Any] {
+                author = user["username"] as? String ?? user["nickname"] as? String
+            }
+            
+            if let pics = data["pics"] as? [String] {
+                imageURLs = pics
+            }
+            
+            coverURL = imageURLs.first ?? data["pic"] as? String
+        }
+        
+        guard title != nil || desc != nil else { return nil }
+        
+        return ParsedContent(
+            title: title,
+            body: desc,
+            author: author,
+            coverURL: coverURL,
+            imageURLs: imageURLs,
+            platformContentID: extractContentID(from: url)
+        )
+    }
+    
+    // MARK: - Meta 标签提取（基础信息）
+    
+    private func extractFromMetaTags(_ html: String, url: URL) -> ParsedContent {
+        let title = extractMeta(html, property: "og:title")
+            ?? extractMeta(html, name: "title")
+            ?? extractMeta(html, property: "twitter:title")
+        let desc = extractMeta(html, property: "og:description")
+            ?? extractMeta(html, name: "description")
+            ?? extractMeta(html, name: "twitter:description")
+        let cover = extractMeta(html, property: "og:image")
+            ?? extractMeta(html, name: "twitter:image")
+        let author = extractMeta(html, name: "author")
+            ?? extractMeta(html, name: "twitter:creator")
+            ?? extractMeta(html, property: "og:article:author")
+        
+        // 尝试从 HTML 中提取作者
+        let htmlAuthor = extractHTMLAuthor(html)
+        
+        return ParsedContent(
+            title: title,
+            body: desc,
+            author: author ?? htmlAuthor,
+            coverURL: cover,
+            platformContentID: extractContentID(from: url)
+        )
+    }
+    
+    private func extractHTMLAuthor(_ html: String) -> String? {
+        let patterns = [
+            "class=\"feed-reply-username\"[^>]*>([^<]+)<",
+            "class=\"username\"[^>]*>([^<]+)<",
+            "class=\"author\"[^>]*>([^<]+)<",
+            "\"username\":\"([^\"]+)\"",
+            "\"nickname\":\"([^\"]+)\""
+        ]
+        for pattern in patterns {
+            if let result = match(html, pattern: pattern) {
+                return result.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+        return nil
+    }
+    
+    private func extractMeta(_ html: String, property: String) -> String? {
+        let pattern = "<meta[^>]+property=\"\(property)\"[^>]+content=\"([^\"]+)\""
+        return match(html, pattern: pattern)
+    }
+    
+    private func extractMeta(_ html: String, name: String) -> String? {
+        let pattern = "<meta[^>]+name=\"\(name)\"[^>]+content=\"([^\"]+)\""
+        return match(html, pattern: pattern)
+    }
+    
+    private func match(_ text: String, pattern: String) -> String? {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive),
+              let m = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+              let r = Range(m.range(at: 1), in: text) else { return nil }
+        return String(text[r])
+    }
+    
+    // MARK: - 媒体下载（复用现有逻辑）
     
     func downloadMedia(content: ParsedContent, itemID: UUID, mediaDir: URL) async throws -> [MediaAsset] {
         var assets: [MediaAsset] = []
@@ -82,141 +255,6 @@ final class CoolapkParser: ContentParser {
         }
         
         return assets
-    }
-    
-    // MARK: - Private
-    
-    private func extractFromSSRData(_ html: String, url: URL) -> ParsedContent? {
-        // 酷安可能有 JSON-LD
-        if let jsonldRange = html.range(of: "<script type=\"application/ld+json\">"),
-           let endRange = html.range(of: "</script>", range: jsonldRange.upperBound..<html.endIndex) {
-            let jsonStr = String(html[jsonldRange.upperBound..<endRange.lowerBound])
-            if let jsonData = jsonStr.data(using: .utf8),
-               let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] {
-                let title = json["headline"] as? String ?? json["name"] as? String
-                let desc = json["description"] as? String
-                var author: String?
-                if let authorObj = json["author"] as? [String: Any] {
-                    author = authorObj["name"] as? String
-                } else if let authorStr = json["author"] as? String {
-                    author = authorStr
-                }
-                var imageURLs: [String] = []
-                if let images = json["image"] as? [String] {
-                    imageURLs = images
-                } else if let image = json["image"] as? String {
-                    imageURLs = [image]
-                }
-                if title != nil || desc != nil {
-                    return ParsedContent(
-                        title: title, body: desc, author: author,
-                        coverURL: imageURLs.first, imageURLs: imageURLs,
-                        platformContentID: extractContentID(from: url)
-                    )
-                }
-            }
-        }
-        
-        // 尝试酷安特有的 SSR 数据
-        if let startRange = html.range(of: "window.__INITIAL_STATE__=") {
-            if let endRange = html.range(of: "</script>", range: startRange.upperBound..<html.endIndex) {
-                var jsonStr = String(html[startRange.upperBound..<endRange.lowerBound])
-                jsonStr = jsonStr.replacingOccurrences(of: "undefined", with: "null")
-                if let jsonData = jsonStr.data(using: .utf8),
-                   let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] {
-                    return parseCoolapkJSON(json, url: url)
-                }
-            }
-        }
-        
-        return nil
-    }
-    
-    private func parseCoolapkJSON(_ json: [String: Any], url: URL) -> ParsedContent? {
-        var title: String?
-        var desc: String?
-        var author: String?
-        var imageURLs: [String] = []
-        var coverURL: String?
-        
-        if let data = json["data"] as? [String: Any] {
-            title = data["title"] as? String
-            desc = data["description"] as? String ?? data["content"] as? String
-            if let user = data["user"] as? [String: Any] {
-                author = user["username"] as? String ?? user["nickname"] as? String
-            }
-            if let pics = data["pics"] as? [String] {
-                imageURLs = pics
-            }
-            coverURL = imageURLs.first ?? data["pic"] as? String
-        }
-        
-        guard title != nil || desc != nil else { return nil }
-        
-        return ParsedContent(
-            title: title, body: desc, author: author,
-            coverURL: coverURL, imageURLs: imageURLs,
-            platformContentID: extractContentID(from: url)
-        )
-    }
-    
-    private func extractFromMetaTags(_ html: String, url: URL) -> ParsedContent {
-        let title = extractMeta(html, property: "og:title")
-            ?? extractMeta(html, name: "title")
-            ?? extractMeta(html, property: "twitter:title")
-        let desc = extractMeta(html, property: "og:description")
-            ?? extractMeta(html, name: "description")
-            ?? extractMeta(html, name: "twitter:description")
-        let cover = extractMeta(html, property: "og:image")
-            ?? extractMeta(html, name: "twitter:image")
-        let author = extractMeta(html, name: "author")
-            ?? extractMeta(html, name: "twitter:creator")
-            ?? extractMeta(html, property: "og:article:author")
-        
-        // 尝试从 HTML 中提取作者（酷安的 feed 页面结构）
-        let htmlAuthor = extractHTMLAuthor(html)
-        
-        return ParsedContent(
-            title: title,
-            body: desc,
-            author: author ?? htmlAuthor,
-            coverURL: cover,
-            platformContentID: extractContentID(from: url)
-        )
-    }
-    
-    private func extractHTMLAuthor(_ html: String) -> String? {
-        // 酷安 feed 页面中作者名通常在 <span class="feed-reply-username"> 或类似结构中
-        let patterns = [
-            "class=\"feed-reply-username\"[^>]*>([^<]+)<",
-            "class=\"username\"[^>]*>([^<]+)<",
-            "class=\"author\"[^>]*>([^<]+)<",
-            "\"username\":\"([^\"]+)\"",
-            "\"nickname\":\"([^\"]+)\""
-        ]
-        for pattern in patterns {
-            if let result = match(html, pattern: pattern) {
-                return result.trimmingCharacters(in: .whitespacesAndNewlines)
-            }
-        }
-        return nil
-    }
-    
-    private func extractMeta(_ html: String, property: String) -> String? {
-        let pattern = "<meta[^>]+property=\"\(property)\"[^>]+content=\"([^\"]+)\""
-        return match(html, pattern: pattern)
-    }
-    
-    private func extractMeta(_ html: String, name: String) -> String? {
-        let pattern = "<meta[^>]+name=\"\(name)\"[^>]+content=\"([^\"]+)\""
-        return match(html, pattern: pattern)
-    }
-    
-    private func match(_ text: String, pattern: String) -> String? {
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive),
-              let m = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
-              let r = Range(m.range(at: 1), in: text) else { return nil }
-        return String(text[r])
     }
     
     private func downloadFile(from url: URL, to localURL: URL) async -> Bool {

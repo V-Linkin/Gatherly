@@ -2,9 +2,8 @@ import Foundation
 import WebKit
 
 /// 通过 WKWebView 加载页面，获取完整内容
-/// 支持知乎、豆瓣等多个平台
+/// 支持知乎、豆瓣、酷安等多个平台
 final class ZhihuWebLoader: NSObject, WKNavigationDelegate {
-
 
     private var webView: WKWebView?
     private var continuation: CheckedContinuation<String?, Never>?
@@ -116,136 +115,66 @@ final class ZhihuWebLoader: NSObject, WKNavigationDelegate {
                         if (del && del.innerText && del.innerText.trim().length > 50) {
                             var ps = del.querySelectorAll('p');
                             if (ps.length > 0) {
-                                doubanResult.text = Array.from(ps).map(function(p) { return p.innerText.trim(); }).filter(function(t) { return t.length > 0; }).join('\\n\\n');
+                                doubanResult.text = Array.from(ps).map(function(p) { return p.innerText.trim(); }).filter(function(t) { return t.length > 0; }).join('\n\n');
                             } else {
                                 doubanResult.text = del.innerText.trim();
                             }
-                            doubanResult.debug = 'matched:' + doubanSelectors[di];
                             break;
                         }
                     }
-                    // 兜底：取所有 <p> 标签
-                    if (!doubanResult.text) {
-                        var allPs = document.querySelectorAll('p');
-                        var longText = Array.from(allPs).map(function(p) { return p.innerText.trim(); }).filter(function(t) { return t.length > 20; }).join('\\n\\n');
-                        if (longText.length > 100) {
-                            doubanResult.text = longText;
-                            doubanResult.debug = 'fallback:p_tags';
-                        }
-                    }
-                    // 再兜底：遍历文本节点
-                    if (!doubanResult.text) {
-                        var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
-                        var chunks = [];
-                        while(walker.nextNode()) {
-                            var t = walker.currentNode.textContent.trim();
-                            var parent = walker.currentNode.parentElement;
-                            if (parent && parent.tagName !== 'SCRIPT' && parent.tagName !== 'STYLE' && parent.tagName !== 'NOSCRIPT' && t.length > 10) {
-                                chunks.push(t);
-                            }
-                        }
-                        var bodyText = chunks.join('\\n\\n');
-                        if (bodyText.length > 100) {
-                            doubanResult.text = bodyText;
-                            doubanResult.debug = 'fallback:text_nodes';
-                        }
-                    }
-                    // 提取作者 - 尝试多种选择器
-                    var authorEl = document.querySelector('.main-hd .name a')
-                        || document.querySelector('.author a')
-                        || document.querySelector('[class*="author"] a')
-                        || document.querySelector('.main-hd a')
-                        || document.querySelector('.review-hd a')
-                        || document.querySelector('header a')
-                        || document.querySelector('.user-info a')
-                        || document.querySelector('[class*="name"] a');
-                    doubanResult.author = authorEl ? authorEl.innerText.trim() : '';
-                    // 如果还没找到，尝试从所有链接中找
-                    if (!doubanResult.author) {
-                        var allLinks = document.querySelectorAll('a');
-                        for (var ai = 0; ai < allLinks.length; ai++) {
-                            var linkText = allLinks[ai].innerText.trim();
-                            var linkHref = allLinks[ai].href || '';
-                            if (linkHref.indexOf('/people/') !== -1 && linkText.length > 0 && linkText.length < 30) {
-                                doubanResult.author = linkText;
-                                break;
-                            }
-                        }
-                    }
-                    // 提取标题 - 影评标题
-                    var _titleEl = document.querySelector('h1')
-                        || document.querySelector('.article h1')
-                        || document.querySelector('.main-hd h1');
-                    doubanResult.title = _titleEl ? _titleEl.innerText.trim() : '';
-                    // h1 太短或包含"豆瓣"时，用 og:title 兜底
-                    if (!doubanResult.title || doubanResult.title.length < 3 || doubanResult.title === '豆瓣') {
-                        var _ogT = document.querySelector('meta[property="og:title"]');
-                        if (_ogT && _ogT.content && _ogT.content.length > 2 && _ogT.content !== '豆瓣') {
-                            doubanResult.title = _ogT.content.replace(/\\s*[-—]\\s*豆瓣.*$/, '').trim();
-                        }
-                    }
-                    // 提取封面 - 优先电影/书籍海报，兜底影评头图
-                    var _posterEl = document.querySelector('.subject-img img')
-                        || document.querySelector('.subject-poster img')
-                        || document.querySelector('.poster img')
-                        || document.querySelector('[data-image]');
-                    if (_posterEl && _posterEl.src && _posterEl.src.indexOf('doubanio.com') !== -1) {
-                        doubanResult.cover = _posterEl.src;
-                    } else if (_posterEl && _posterEl.getAttribute && _posterEl.getAttribute('data-image')) {
-                        doubanResult.cover = _posterEl.getAttribute('data-image');
-                    } else {
-                        var _ogImg = document.querySelector('meta[property="og:image"]');
-                        doubanResult.cover = (_ogImg && _ogImg.content) ? _ogImg.content : '';
-                    }
-
-                    if (doubanResult.text.length > 30) {
-                        doubanResult.debug += ' | bodyLen:' + bodyLen + ' | pageURL:' + url + ' | h1:' + (document.querySelector('h1') ? document.querySelector('h1').innerText.substring(0,50) : 'none');
-                        return 'DOUBAN_JSON:' + JSON.stringify(doubanResult);
-                    }
-                    doubanResult.debug += ' | bodyLen:' + bodyLen + ' | pageURL:' + url + ' | h1:' + (document.querySelector('h1') ? document.querySelector('h1').innerText.substring(0,50) : 'none') + ' | reviewContent:' + (document.querySelector('.review-content') ? 'exists' : 'missing') + ' | mainReview:' + (document.querySelector('.main-review') ? 'exists' : 'missing');
-                    return 'DOUBAN_JSON:' + JSON.stringify({text:'', title: doubanResult.title, author: doubanResult.author, cover: doubanResult.cover, debug: doubanResult.debug});
-                }
-                // === 小红书 - 提取笔记内容 ===
-                if (url.indexOf('xiaohongshu.com') !== -1 || url.indexOf('xhslink.com') !== -1) {
-                    var xhsResult = {title: '', author: '', text: '', images: [], cover: '', debug: ''};
-                    
-                    // 提取标题
-                    var _xhsTitleEl = document.querySelector('h1.note-title')
-                        || document.querySelector('.title')
-                        || document.querySelector('h1')
-                        || document.querySelector('[class*="title"]');
-                    xhsResult.title = _xhsTitleEl ? _xhsTitleEl.innerText.trim() : '';
-                    if (!xhsResult.title) {
-                        var _xhsOgTitle = document.querySelector('meta[property="og:title"]');
-                        xhsResult.title = _xhsOgTitle ? _xhsOgTitle.content : '';
-                    }
                     
                     // 提取作者
-                    var _xhsAuthorEl = document.querySelector('.author .username')
-                        || document.querySelector('.user-name')
-                        || document.querySelector('[class*="author"]')
-                        || document.querySelector('[class*="nickname"]');
-                    xhsResult.author = _xhsAuthorEl ? _xhsAuthorEl.innerText.trim() : '';
-                    if (!xhsResult.author) {
-                        var _xhsUserLink = document.querySelector('a[href*="/user/profile/"]');
-                        xhsResult.author = _xhsUserLink ? _xhsUserLink.innerText.trim() : '';
+                    var authorEl = document.querySelector('.author a, .reviewer-name, [class*="author"]');
+                    if (authorEl) {
+                        doubanResult.author = authorEl.innerText.trim();
                     }
                     
-                    // 提取正文 - 小红书正文选择器
-                    var _xhsContentEl = document.querySelector('#detail-desc')
-                        || document.querySelector('.note-text')
-                        || document.querySelector('[class*="detail-desc"]')
-                        || document.querySelector('[class*="note-desc"]')
-                        || document.querySelector('.content')
-                        || document.querySelector('.desc')
-                        || document.querySelector('[class*="content"]')
-                        || document.querySelector('[class*="desc"]');
-                    if (_xhsContentEl) {
-                        var _xhsPs = _xhsContentEl.querySelectorAll('p');
-                        if (_xhsPs.length > 0) {
-                            xhsResult.text = Array.from(_xhsPs).map(function(p) { return p.innerText.trim(); }).filter(function(t) { return t.length > 0; }).join('\n\n');
-                        } else {
-                            xhsResult.text = _xhsContentEl.innerText.trim();
+                    // 提取封面（优先从 subject 页面获取）
+                    var ogImage = document.querySelector('meta[property="og:image"]');
+                    if (ogImage) {
+                        doubanResult.cover = ogImage.content;
+                    }
+                    
+                    // 调试信息
+                    doubanResult.debug = 'bodyLen:' + bodyLen;
+                    
+                    if (doubanResult.text.length > 20) {
+                        return 'DOUBAN_JSON:' + JSON.stringify(doubanResult);
+                    }
+                }
+
+                // === 小红书 ===
+                if (url.indexOf('xiaohongshu.com') !== -1 || url.indexOf('xhslink.com') !== -1) {
+                    var xhsResult = {title: '', text: '', author: '', images: [], cover: '', debug: ''};
+                    
+                    // 尝试 SSR 数据提取
+                    var initScript = document.querySelector('script[type="application/json"]#pageData');
+                    if (initScript) {
+                        try {
+                            var data = JSON.parse(initScript.textContent);
+                            if (data && data.items && data.items.length > 0) {
+                                var note = data.items[0];
+                                xhsResult.title = note.title || '';
+                                xhsResult.text = note.desc || '';
+                                xhsResult.author = note.user && note.user.nickname ? note.user.nickname : '';
+                                if (note.imageList && note.imageList.length > 0) {
+                                    xhsResult.images = note.imageList.map(function(img) { return img.url || img.urlDefault || ''; });
+                                }
+                                xhsResult.cover = xhsResult.images.length > 0 ? xhsResult.images[0] : '';
+                            }
+                        } catch(e) {}
+                    }
+                    
+                    // DOM 提取备用
+                    if (!xhsResult.text) {
+                        var _xhsContentEl = document.querySelector('#detail-desc, .note-text, [class*="content"]');
+                        if (_xhsContentEl) {
+                            var _xhsPs = _xhsContentEl.querySelectorAll('p');
+                            if (_xhsPs.length > 0) {
+                                xhsResult.text = Array.from(_xhsPs).map(function(p) { return p.innerText.trim(); }).filter(function(t) { return t.length > 0; }).join('\n\n');
+                            } else {
+                                xhsResult.text = _xhsContentEl.innerText.trim();
+                            }
                         }
                     }
                     if (!xhsResult.text || xhsResult.text.length < 20) {
@@ -288,6 +217,117 @@ final class ZhihuWebLoader: NSObject, WKNavigationDelegate {
                     }
                 }
 
+                // === 酷安 ===
+                if (url.indexOf('coolapk.com') !== -1 || url.indexOf('coolapk1s.com') !== -1) {
+                    var coolapkResult = {
+                        title: '',
+                        text: '',
+                        author: '',
+                        images: [],
+                        cover: '',
+                        debug: 'bodyLen:' + bodyLen
+                    };
+                    
+                    // 1. 尝试提取文章标题（更精确的选择器）
+                    var titleSelectors = [
+                        '.detail-title',
+                        '.feed-title',
+                        '.post-title',
+                        'h1.title',
+                        '[class*="title"]',
+                        'title'
+                    ];
+                    
+                    for (var i = 0; i < titleSelectors.length; i++) {
+                        var titleEl = document.querySelector(titleSelectors[i]);
+                        if (titleEl && titleEl.innerText && titleEl.innerText.trim().length > 0) {
+                            var titleText = titleEl.innerText.trim();
+                            // 过滤掉页面标题"酷安APP"
+                            if (titleText !== '酷安APP' && titleText.length > 5) {
+                                coolapkResult.title = titleText;
+                                break;
+                            }
+                        }
+                    }
+                    
+                    // 如果还是没找到好标题，尝试从内容中提取第一行作为标题
+                    if (!coolapkResult.title || coolapkResult.title.length < 5) {
+                        var contentEl = document.querySelector('.detail-content, .feed-content, article, [class*="content"]');
+                        if (contentEl) {
+                            var lines = contentEl.innerText.split('\n');
+                            for (var j = 0; j < lines.length; j++) {
+                                var line = lines[j].trim();
+                                if (line.length > 5 && line.length < 50) {
+                                    coolapkResult.title = line;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    
+                    // 2. 提取正文内容
+                    var contentEl = document.querySelector('.detail-content, .feed-content, article, [class*="content"]');
+                    if (contentEl) {
+                        coolapkResult.text = contentEl.innerText.trim();
+                    }
+                    
+                    // 3. 提取图片（过滤非内容图片）
+                    var imgEls = document.querySelectorAll('.detail-content img, .feed-content img, article img, [class*="content"] img');
+                    var allImages = Array.from(imgEls).map(function(img) {
+                        return img.src;
+                    }).filter(function(src) {
+                        return src && src.indexOf('http') === 0;
+                    });
+                    
+                    // 过滤掉常见非内容图片
+                    var contentImages = allImages.filter(function(src) {
+                        // 过滤掉logo、图标、表情包等
+                        return !src.includes('static.coolapk.com/static/web') &&
+                               !src.includes('avatar.coolapk.com') &&
+                               !src.includes('emoticons') &&
+                               !src.includes('product_logo') &&
+                               !src.includes('beian.png') &&
+                               !src.includes('qr/image');
+                    });
+                    
+                    coolapkResult.images = contentImages;
+                    
+                    // 4. 提取作者信息
+                    var authorSelectors = [
+                        '.user-name',
+                        '.author-name',
+                        '.feed-user',
+                        '[class*="user"]',
+                        '[class*="author"]'
+                    ];
+                    
+                    for (var i = 0; i < authorSelectors.length; i++) {
+                        var authorEl = document.querySelector(authorSelectors[i]);
+                        if (authorEl && authorEl.innerText) {
+                            var authorText = authorEl.innerText.trim();
+                            // 清洗作者信息（去掉换行和设备信息）
+                            authorText = authorText.replace(/\\n/g, ' ').replace(/\\s+/g, ' ');
+                            if (authorText.length > 0) {
+                                coolapkResult.author = authorText;
+                                break;
+                            }
+                        }
+                    }
+                    
+                    // 5. 设置封面（取第一张内容图片）
+                    coolapkResult.cover = coolapkResult.images.length > 0 ? coolapkResult.images[0] : '';
+                    
+                    // 更新调试信息
+                    coolapkResult.debug = 'bodyLen:' + bodyLen + 
+                                        ',title:' + (coolapkResult.title ? 'yes' : 'no') +
+                                        ',author:' + (coolapkResult.author ? 'yes' : 'no') +
+                                        ',text:' + coolapkResult.text.length +
+                                        ',images:' + coolapkResult.images.length;
+                    
+                    if (coolapkResult.text.length > 20 || coolapkResult.images.length > 0) {
+                        return 'COOLAPK_JSON:' + JSON.stringify(coolapkResult);
+                    }
+                }
 
                 // === 通用 - 取主要内容区 ===
                 var genericSelectors = [
