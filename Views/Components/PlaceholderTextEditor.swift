@@ -31,6 +31,34 @@ struct PlaceholderTextEditor: NSViewRepresentable {
     }
 }
 
+
+
+// MARK: - 可穿透的 NSScrollView（内容滚到底后传递事件给父级）
+
+class PassthroughScrollView: NSScrollView {
+    override func scrollWheel(with event: NSEvent) {
+        let canScrollVertically = documentView.map { $0.bounds.height > frame.height } ?? false
+        guard canScrollVertically else {
+            // 内容不需要滚动，直接传递给父级
+            nextResponder?.scrollWheel(with: event)
+            return
+        }
+        
+        let atBottom = (documentView!.bounds.height - (documentVisibleRect.origin.y + documentVisibleRect.height)) < 1.0
+        let atTop = documentVisibleRect.origin.y < 1.0
+        
+        let scrollingDown = event.scrollingDeltaY > 0
+        
+        if (scrollingDown && atBottom) || (!scrollingDown && atTop) {
+            // 已经到底/到顶，传递给父级
+            nextResponder?.scrollWheel(with: event)
+        } else {
+            // 还能滚动，正常处理
+            super.scrollWheel(with: event)
+        }
+    }
+}
+
 class PlaceholderTextEditorNSView: NSView, NSTextViewDelegate {
     var text: String = ""
     var onTextChange: ((String) -> Void)?
@@ -59,7 +87,7 @@ class PlaceholderTextEditorNSView: NSView, NSTextViewDelegate {
         textView.drawsBackground = false
         textView.delegate = self
         
-        scrollView = NSScrollView()
+        scrollView = PassthroughScrollView()
         scrollView.documentView = textView
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = false

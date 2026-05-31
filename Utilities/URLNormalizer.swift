@@ -3,6 +3,28 @@ import Foundation
 /// URL 标准化器 - 用于去重
 struct URLNormalizer {
     
+    /// 从混合文本中提取所有支持平台的 URL
+    static func extractURLs(from text: String) -> [String] {
+        let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
+        let range = NSRange(text.startIndex..., in: text)
+        let matches = detector?.matches(in: text, options: [], range: range) ?? []
+        
+        var results: [String] = []
+        for match in matches {
+            guard let urlRange = Range(match.range, in: text) else { continue }
+            let urlString = String(text[urlRange])
+            if recognizePlatform(urlString) != nil {
+                results.append(urlString)
+            }
+        }
+        return results
+    }
+    
+    /// 从混合文本中提取第一个支持的 URL
+    static func extractFirstURL(from text: String) -> String? {
+        return extractURLs(from: text).first
+    }
+    
     /// 从 URL 中识别平台
     static func recognizePlatform(_ urlString: String) -> Platform? {
         let lower = urlString.lowercased()

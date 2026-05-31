@@ -52,7 +52,8 @@ final class AppState {
         Task.detached { [weak self] in
             guard let self else { return }
             let customPlatforms = (try? self.customPlatformRepo.fetchAll()) ?? []
-            let recentItems = (try? self.itemRepo.fetchRecent(limit: 10)) ?? []
+            
+            let recentItems = (try? self.itemRepo.fetchRecent()) ?? []
             let recentFolders = (try? self.folderRepo.fetchRecent(limit: 5)) ?? []
             try? self.searchRepo.rebuildIndex()
             

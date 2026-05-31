@@ -8,6 +8,7 @@ struct EditItemView: View {
     @State private var title: String
     @State private var bodyText: String
     @State private var author: String
+    @State private var remark: String
     @State private var mediaAssets: [MediaAsset] = []
     @State private var newImageURLs: [URL] = []
     @State private var newVideoURLs: [URL] = []
@@ -23,6 +24,9 @@ struct EditItemView: View {
         _title = State(initialValue: item.title ?? "")
         _bodyText = State(initialValue: item.body ?? "")
         _author = State(initialValue: item.author ?? "")
+        _remark = State(initialValue: item.remark ?? "")
+        _remark = State(initialValue: item.remark ?? "")
+        _remark = State(initialValue: item.remark ?? "")
     }
     
     var body: some View {
@@ -56,12 +60,7 @@ struct EditItemView: View {
                     
                     VStack(alignment: .leading, spacing: 4) {
                         Text("正文").font(.subheadline).foregroundStyle(.secondary)
-                        TextEditor(text: $bodyText)
-                            .font(.body)
-                            .scrollContentBackground(.visible)
-                            .frame(minHeight: 120, idealHeight: 180, maxHeight: 300)
-                            .padding(4)
-                            .overlay(RoundedRectangle(cornerRadius: 6).stroke(.quaternary))
+                        MarkdownEditor(text: $bodyText, placeholder: "输入正文内容，支持 Markdown 格式", minHeight: 150)
                     }
                     
                     // Images
@@ -244,6 +243,9 @@ struct EditItemView: View {
         updated.title = title.isEmpty ? nil : title
         updated.body = bodyText.isEmpty ? nil : bodyText
         updated.author = author.isEmpty ? nil : author
+        updated.remark = remark.isEmpty ? nil : remark
+        updated.remark = remark.isEmpty ? nil : remark
+        updated.remark = remark.isEmpty ? nil : remark
         updated.modifyDate = Date()
         try? appState.itemRepo.update(updated)
         

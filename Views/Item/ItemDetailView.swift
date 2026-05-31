@@ -41,6 +41,13 @@ struct ItemDetailView: View {
                 EditItemView(item: item, isPresented: $isEditing)
             }
         }
+        .onChange(of: isEditing) { _, editing in
+            if !editing {
+                // 编辑 sheet 关闭后刷新数据
+                loadItem()
+                editableRemark = item?.remark ?? ""
+            }
+        }
         .sheet(isPresented: $showMoveSheet) {
             MoveToFolderSheet(itemID: itemID, itemPlatform: item?.customPlatformID, isPresented: $showMoveSheet)
         }

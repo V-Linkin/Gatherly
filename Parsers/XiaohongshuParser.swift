@@ -1,6 +1,6 @@
 import Foundation
 
-/// 小红书解析器
+/// 小红书解析器 - 双模式：登录用 HTTP，未登录用 WKWebView
 final class XiaohongshuParser: ContentParser, @unchecked Sendable {
     
     private let session: URLSession = {
@@ -26,96 +26,84 @@ final class XiaohongshuParser: ContentParser, @unchecked Sendable {
     }
     
     func parse(url: URL) async throws -> ParsedContent {
+        // 1. 先尝试 HTTP 快速获取（登录状态）
+        if let content = try? await parseViaHTTP(url: url) {
+            return content
+        }
+        
+        // 2. HTTP 失败，使用 WKWebView 降级（未登录状态）
+        return try await parseViaWebView(url: url)
+    }
+    
+    // MARK: - HTTP 模式（登录状态，快速）
+    
+    private func parseViaHTTP(url: URL) async throws -> ParsedContent? {
         let (data, response) = try await session.data(from: url)
         
         guard let httpResponse = response as? HTTPURLResponse,
               httpResponse.statusCode == 200 else {
-            throw ParserError.parseFailed(reason: "HTTP 请求失败")
+            return nil
         }
         
         guard let html = String(data: data, encoding: .utf8) else {
-            throw ParserError.parseFailed(reason: "无法解码页面内容")
+            return nil
         }
         
-        if let content = extractFromSSRData(html, url: url) {
-            return content
+        // 检查是否有 SSR 数据（登录状态的标志）
+        guard html.contains("window.__INITIAL_STATE__=") else {
+            return nil
         }
         
-        return extractFromMetaTags(html, url: url)
+        return extractFromSSRData(html, url: url)
     }
     
-    func downloadMedia(content: ParsedContent, itemID: UUID, mediaDir: URL) async throws -> [MediaAsset] {
-        var assets: [MediaAsset] = []
-        let fileManager = FileManager.default
-        let itemDir = mediaDir.appendingPathComponent(itemID.uuidString)
-        try fileManager.createDirectory(at: itemDir, withIntermediateDirectories: true)
-        
-        if let coverURL = content.coverURL, let url = URL(string: coverURL) {
-            let fileName = "cover.jpg"
-            let localPath = itemDir.appendingPathComponent(fileName)
-            if await downloadFile(from: url, to: localPath) {
-                let asset = MediaAsset(
-                    itemID: itemID,
-                    type: .cover,
-                    localPath: "\(itemID.uuidString)/\(fileName)",
-                    remoteURL: coverURL,
-                    fileName: fileName,
-                    downloadStatus: .completed
-                )
-                try MediaRepository().insert(asset)
-                assets.append(asset)
-            }
+    // MARK: - WKWebView 模式（未登录状态，稳定）
+    
+    @MainActor
+    private func parseViaWebView(url: URL) async throws -> ParsedContent {
+        let loader = ZhihuWebLoader()
+        guard let result = await loader.loadFullContent(from: url) else {
+            throw ParserError.parseFailed(reason: "无法加载小红书页面")
         }
         
-        for (index, imageURL) in content.imageURLs.enumerated() {
-            guard let url = URL(string: imageURL) else { continue }
-            let fileName = "image_\(String(format: "%03d", index + 1)).jpg"
-            let localPath = itemDir.appendingPathComponent(fileName)
-            if await downloadFile(from: url, to: localPath) {
-                let asset = MediaAsset(
-                    itemID: itemID,
-                    type: .image,
-                    localPath: "\(itemID.uuidString)/\(fileName)",
-                    remoteURL: imageURL,
-                    fileName: fileName,
-                    downloadStatus: .completed
-                )
-                try MediaRepository().insert(asset)
-                assets.append(asset)
-            }
+        // 解析 XIAOHONGSHU_JSON: 前缀的结果
+        guard result.hasPrefix("XIAOHONGSHU_JSON:") else {
+            throw ParserError.parseFailed(reason: "页面解析失败")
         }
         
-        // 尝试下载视频
-        if let videoURL = content.videoURL, let url = URL(string: videoURL) {
-            let fileName = "video.mp4"
-            let localPath = itemDir.appendingPathComponent(fileName)
-            if await downloadFile(from: url, to: localPath) {
-                let fileSize = (try? fileManager.attributesOfItem(atPath: localPath.path)[.size] as? Int64) ?? 0
-                let asset = MediaAsset(
-                    itemID: itemID, type: .video,
-                    localPath: "\(itemID.uuidString)/\(fileName)",
-                    remoteURL: videoURL, fileName: fileName,
-                    fileSize: fileSize,
-                    downloadStatus: .completed
-                )
-                try MediaRepository().insert(asset)
-                assets.append(asset)
-            } else {
-                // 视频下载失败，记录为跳过
-                let asset = MediaAsset(
-                    itemID: itemID, type: .video,
-                    remoteURL: videoURL, fileName: "video.mp4",
-                    downloadStatus: .failed
-                )
-                try MediaRepository().insert(asset)
-                assets.append(asset)
-            }
+        let jsonStr = String(result.dropFirst("XIAOHONGSHU_JSON:".count))
+        guard let jsonData = jsonStr.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {
+            throw ParserError.parseFailed(reason: "JSON 解析失败")
         }
         
-        return assets
+        let title = json["title"] as? String
+        let author = json["author"] as? String
+        let text = json["text"] as? String
+        let images = json["images"] as? [String] ?? []
+        let cover = json["cover"] as? String
+        
+        guard title != nil || text != nil || !images.isEmpty else {
+            throw ParserError.parseFailed(reason: "未获取到内容")
+        }
+        
+        // 去重：如果封面是第一张图，从图片列表中移除
+        var uniqueImages = images
+        if let coverURL = cover, !coverURL.isEmpty, uniqueImages.first == coverURL {
+            uniqueImages.removeFirst()
+        }
+        
+        return ParsedContent(
+            title: title,
+            body: text,
+            author: author,
+            coverURL: cover,
+            imageURLs: uniqueImages,
+            platformContentID: extractContentID(from: url)
+        )
     }
     
-    // MARK: - Private
+    // MARK: - SSR 数据解析（复用原有逻辑）
     
     private func extractFromSSRData(_ html: String, url: URL) -> ParsedContent? {
         guard let startRange = html.range(of: "window.__INITIAL_STATE__=") else {
@@ -164,6 +152,10 @@ final class XiaohongshuParser: ContentParser, @unchecked Sendable {
                     }
                 }
                 coverURL = imageURLs.first
+                // 去重：移除第一张图片，避免封面重复
+                if imageURLs.count > 0 {
+                    imageURLs.removeFirst()
+                }
             }
             
             if let time = note["time"] as? Double {
@@ -185,18 +177,78 @@ final class XiaohongshuParser: ContentParser, @unchecked Sendable {
         )
     }
     
-    private func extractFromMetaTags(_ html: String, url: URL) -> ParsedContent {
-        let title = extractMeta(html, property: "og:title")
-        let desc = extractMeta(html, property: "og:description")
-        let cover = extractMeta(html, property: "og:image")
+    // MARK: - Media Download
+    
+    func downloadMedia(content: ParsedContent, itemID: UUID, mediaDir: URL) async throws -> [MediaAsset] {
+        var assets: [MediaAsset] = []
+        let fileManager = FileManager.default
+        let itemDir = mediaDir.appendingPathComponent(itemID.uuidString)
+        try fileManager.createDirectory(at: itemDir, withIntermediateDirectories: true)
         
-        return ParsedContent(
-            title: title,
-            body: desc,
-            coverURL: cover,
-            platformContentID: extractContentID(from: url)
-        )
+        if let coverURL = content.coverURL, let url = URL(string: coverURL) {
+            let fileName = "cover.jpg"
+            let localPath = itemDir.appendingPathComponent(fileName)
+            if await downloadFile(from: url, to: localPath) {
+                let asset = MediaAsset(
+                    itemID: itemID,
+                    type: .cover,
+                    localPath: "\(itemID.uuidString)/\(fileName)",
+                    remoteURL: coverURL,
+                    fileName: fileName,
+                    downloadStatus: .completed
+                )
+                try MediaRepository().insert(asset)
+                assets.append(asset)
+            }
+        }
+        
+        for (index, imageURL) in content.imageURLs.enumerated() {
+            guard let url = URL(string: imageURL) else { continue }
+            let fileName = "image_\(String(format: "%03d", index + 1)).jpg"
+            let localPath = itemDir.appendingPathComponent(fileName)
+            if await downloadFile(from: url, to: localPath) {
+                let asset = MediaAsset(
+                    itemID: itemID,
+                    type: .image,
+                    localPath: "\(itemID.uuidString)/\(fileName)",
+                    remoteURL: imageURL,
+                    fileName: fileName,
+                    downloadStatus: .completed
+                )
+                try MediaRepository().insert(asset)
+                assets.append(asset)
+            }
+        }
+        
+        if let videoURL = content.videoURL, let url = URL(string: videoURL) {
+            let fileName = "video.mp4"
+            let localPath = itemDir.appendingPathComponent(fileName)
+            if await downloadFile(from: url, to: localPath) {
+                let fileSize = (try? fileManager.attributesOfItem(atPath: localPath.path)[.size] as? Int64) ?? 0
+                let asset = MediaAsset(
+                    itemID: itemID, type: .video,
+                    localPath: "\(itemID.uuidString)/\(fileName)",
+                    remoteURL: videoURL, fileName: fileName,
+                    fileSize: fileSize,
+                    downloadStatus: .completed
+                )
+                try MediaRepository().insert(asset)
+                assets.append(asset)
+            } else {
+                let asset = MediaAsset(
+                    itemID: itemID, type: .video,
+                    remoteURL: videoURL, fileName: "video.mp4",
+                    downloadStatus: .failed
+                )
+                try MediaRepository().insert(asset)
+                assets.append(asset)
+            }
+        }
+        
+        return assets
     }
+    
+    // MARK: - Private
     
     private func extractMeta(_ html: String, property: String) -> String? {
         let patterns = [

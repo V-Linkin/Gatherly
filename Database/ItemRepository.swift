@@ -163,13 +163,14 @@ final class ItemRepository: @unchecked Sendable {
         }
     }
     
-    /// 获取最近导入的内容
-    func fetchRecent(limit: Int = 10) throws -> [Item] {
-        try db.read { db in
+    /// 获取最近7天导入的内容
+    func fetchRecent() throws -> [Item] {
+        let sevenDaysAgo = Calendar.current.date(byAdding: .day, value: -7, to: Date()) ?? Date()
+        return try db.read { db in
             try fetchAll(
                 db,
-                sql: "SELECT * FROM items WHERE deleted_at IS NULL ORDER BY import_date DESC LIMIT ?",
-                arguments: [limit]
+                sql: "SELECT * FROM items WHERE deleted_at IS NULL AND import_date >= ? ORDER BY import_date DESC",
+                arguments: [sevenDaysAgo.timeIntervalSince1970]
             )
         }
     }
@@ -248,7 +249,7 @@ final class ItemRepository: @unchecked Sendable {
         return try rowToItem(row)
     }
     
-    private func fetchAll(_ db: Database, sql: String, arguments: StatementArguments = StatementArguments()) throws -> [Item] {
+private func fetchAll(_ db: Database, sql: String, arguments: StatementArguments = StatementArguments()) throws -> [Item] {
         let rows = try Row.fetchAll(db, sql: sql, arguments: arguments)
         return try rows.map { try rowToItem($0) }
     }

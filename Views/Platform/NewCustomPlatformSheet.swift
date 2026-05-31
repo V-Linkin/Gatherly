@@ -85,11 +85,9 @@ struct NewCustomPlatformSheet: View {
         
         var cp = CustomPlatform(name: name)
         
-        // Save logo
         if let logoURL = logoURL {
             let logosDir = DataDirectory.platformLogos
             try? FileManager.default.createDirectory(at: logosDir, withIntermediateDirectories: true)
-            
             let fileName = "\(cp.id.uuidString).\(logoURL.pathExtension.isEmpty ? "png" : logoURL.pathExtension)"
             let dest = logosDir.appendingPathComponent(fileName)
             do {
@@ -104,8 +102,36 @@ struct NewCustomPlatformSheet: View {
         }
         
         try? appState.customPlatformRepo.insert(cp)
+        
+        let matchedCount = autoAssignUncategorized(name: name, platformID: cp.id)
+        
         appState.refreshData()
         isPresented = false
-        appState.showToast("平台「\(name)」已创建")
+        if matchedCount > 0 {
+            appState.showToast("已自动归类 \(matchedCount) 条「\(name)」内容")
+        } else {
+            appState.showToast("平台「\(name)」已创建")
+        }
+    }
+    
+    private func autoAssignUncategorized(name: String, platformID: UUID) -> Int {
+        guard let matchedPlatform = Platform.allCases.first(where: { $0.defaultDisplayName == name }) else {
+            return 0
+        }
+        
+        let allItems = (try? appState.itemRepo.fetchAll()) ?? []
+        let uncategorized = allItems.filter { $0.customPlatformID == nil }
+        
+        var count = 0
+        for item in uncategorized {
+            if URLNormalizer.recognizePlatform(item.originalURL) == matchedPlatform {
+                var updated = item
+                updated.customPlatformID = platformID
+                updated.platform = .custom
+                try? appState.itemRepo.update(updated)
+                count += 1
+            }
+        }
+        return count
     }
 }

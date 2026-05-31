@@ -17,7 +17,7 @@ struct HomeView: View {
                     } label: {
                         HStack(spacing: 6) {
                             Image(systemName: "plus.circle.fill")
-                            Text("新建内容")
+                            Text("自定义导入内容")
                         }
                         .font(.subheadline)
                         .fontWeight(.medium)
@@ -29,10 +29,8 @@ struct HomeView: View {
                 
                 Divider()
                 
-                if !appState.recentItems.isEmpty {
-                    RecentItemsSection(items: appState.recentItems, selectedNav: $selectedNav, previousNav: $previousNav)
-                    Divider()
-                }
+                RecentItemsSection(items: appState.recentItems, selectedNav: $selectedNav, previousNav: $previousNav)
+                Divider()
                 
                 PlatformGridSection(selectedNav: $selectedNav, previousNav: $previousNav)
                 
@@ -51,65 +49,95 @@ struct HomeView: View {
 
 struct PasteInputView: View {
     @Environment(AppState.self) private var appState
-    @State private var inputURL = ""
+    @State private var inputText = ""
     @State private var recognizedPlatform: Platform?
+    @State private var detectedURL: String?
     @State private var isImporting = false
     @FocusState private var isInputFocused: Bool
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("粘贴并保存")
+            Text("一键归档")
                 .font(.headline)
             
-            HStack(spacing: 12) {
-                TextField("粘贴链接到这里...", text: $inputURL)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(size: 16))
-                    .focused($isInputFocused)
-                    .onChange(of: inputURL) { _, newValue in
-                        recognizedPlatform = URLNormalizer.recognizePlatform(newValue)
-                    }
-                    .onSubmit {
-                        if !inputURL.isEmpty {
-                            importURL()
+            VStack(alignment: .leading, spacing: 8) {
+                ZStack(alignment: .topLeading) {
+                    NoScrollTextEditor(text: $inputText)
+                        .frame(minHeight: 80, maxHeight: 160)
+                        .focused($isInputFocused)
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+                        )
+                        .onChange(of: inputText) { _, newValue in
+                            autoDetectAndImport(newValue)
                         }
+                    
+                    if inputText.isEmpty {
+                        Text("粘贴到此处以完成导入")
+                            .font(.system(size: 14))
+                            .foregroundStyle(.tertiary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .allowsHitTesting(false)
                     }
+                }
                 
-                Button(action: importURL) {
-                    if isImporting {
+                if isImporting {
+                    HStack(spacing: 6) {
                         ProgressView()
-                            .scaleEffect(0.8)
-                            .frame(width: 60)
-                    } else {
-                        Text("保存")
-                            .frame(width: 60)
+                            .scaleEffect(0.7)
+                        Text("正在导入...")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
+                } else if let url = detectedURL, let platform = recognizedPlatform {
+                    HStack(spacing: 6) {
+                        Image(systemName: platform.iconName)
+                            .foregroundStyle(platform.brandColor)
+                        Text("识别到 \(platform.displayName): \(url)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    .transition(.opacity.combined(with: .move(edge: .top)))
                 }
-                .buttonStyle(.borderedProminent)
-                .disabled(inputURL.isEmpty || isImporting)
-                .keyboardShortcut(.return, modifiers: [])
-            }
-            
-            if let platform = recognizedPlatform {
-                HStack(spacing: 6) {
-                    Image(systemName: platform.iconName)
-                        .foregroundStyle(platform.brandColor)
-                    Text("识别到: \(platform.displayName)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
         .animation(.easeInOut(duration: 0.15), value: recognizedPlatform)
     }
     
-    private func importURL() {
-        guard !inputURL.isEmpty, !isImporting else { return }
+    private func autoDetectAndImport(_ text: String) {
+        guard !isImporting else { return }
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            recognizedPlatform = nil
+            detectedURL = nil
+            return
+        }
+        
+        // 从文本中提取 URL
+        if let url = URLNormalizer.extractFirstURL(from: text) {
+            let platform = URLNormalizer.recognizePlatform(url)
+            // 避免重复触发：URL 和平台都没变时跳过
+            if url == detectedURL && platform == recognizedPlatform { return }
+            
+            detectedURL = url
+            recognizedPlatform = platform
+            
+            // 粘贴后自动开始导入
+            if platform != nil {
+                autoImport(url: url)
+            }
+        } else {
+            recognizedPlatform = nil
+            detectedURL = nil
+        }
+    }
+    
+    private func autoImport(url: String) {
+        guard !isImporting else { return }
         isImporting = true
-        let url = inputURL
-        inputURL = ""
-        recognizedPlatform = nil
         
         Task {
             let result = await appState.importService.importURL(url)
@@ -132,6 +160,11 @@ struct PasteInputView: View {
                         appState.showToast("导入失败: \(error.localizedDescription)")
                     }
                 }
+                
+                // 导入完成后清空输入框
+                inputText = ""
+                detectedURL = nil
+                recognizedPlatform = nil
             }
         }
     }
@@ -152,21 +185,28 @@ struct RecentItemsSection: View {
             Text("最近导入")
                 .font(.headline)
             
-            ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(spacing: 12) {
-                    ForEach(items) { item in
-                        Button {
-                            previousNav = .home
-                            if NavDebounce.shared.canNavigate() { selectedNav = .item(item.id) }
-                        } label: {
-                            ItemCardView(item: item)
+            if items.isEmpty {
+                Text("最近7日暂无内容导入")
+                    .font(.subheadline)
+                    .foregroundStyle(.tertiary)
+                    .frame(maxWidth: .infinity, minHeight: 60)
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHStack(spacing: 12) {
+                        ForEach(items) { item in
+                            Button {
+                                previousNav = .home
+                                if NavDebounce.shared.canNavigate() { selectedNav = .item(item.id) }
+                            } label: {
+                                ItemCardView(item: item)
+                            }
+                            .buttonStyle(.plain)
+                            .frame(width: cardWidth)
                         }
-                        .buttonStyle(.plain)
-                        .frame(width: cardWidth)
                     }
                 }
+                .frame(height: cardHeight)
             }
-            .frame(height: cardHeight)
         }
     }
 }
@@ -282,6 +322,59 @@ struct RecentFoldersSection: View {
                     .buttonStyle(.plain)
                 }
             }
+        }
+    }
+}
+
+
+// MARK: - 无滚动条的 TextEditor (NSViewRepresentable)
+
+struct NoScrollTextEditor: NSViewRepresentable {
+    @Binding var text: String
+    var font: NSFont = .systemFont(ofSize: 14)
+    
+    func makeNSView(context: Context) -> NSScrollView {
+        let scrollView = NSTextView.scrollableTextView()
+        let textView = scrollView.documentView as! NSTextView
+        
+        textView.font = font
+        textView.isRichText = false
+        textView.allowsUndo = true
+        textView.delegate = context.coordinator
+        textView.textContainerInset = NSSize(width: 5, height: 8)
+        
+        // 隐藏滚动条
+        scrollView.hasVerticalScroller = false
+        scrollView.hasHorizontalScroller = false
+        scrollView.autohidesScrollers = true
+        scrollView.scrollerStyle = .overlay
+        
+        // 背景透明
+        scrollView.drawsBackground = false
+        textView.backgroundColor = .clear
+        
+        textView.string = text
+        
+        return scrollView
+    }
+    
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        let textView = scrollView.documentView as! NSTextView
+        if textView.string != text {
+            textView.string = text
+        }
+    }
+    
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+    
+    class Coordinator: NSObject, NSTextViewDelegate {
+        var parent: NoScrollTextEditor
+        init(_ parent: NoScrollTextEditor) { self.parent = parent }
+        func textDidChange(_ notification: Notification) {
+            guard let tv = notification.object as? NSTextView else { return }
+            parent.text = tv.string
         }
     }
 }
