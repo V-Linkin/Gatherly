@@ -1,7 +1,7 @@
 import Foundation
 import WebKit
 
-/// 酷安解析器 - 双模式：HTTP 快速尝试 + WebView 降级
+/// 酷安解析器 - 优先使用镜像站 coolapk1s.com 绕过反爬
 final class CoolapkParser: ContentParser, @unchecked Sendable {
     
     private let session: URLSession = {
@@ -27,16 +27,115 @@ final class CoolapkParser: ContentParser, @unchecked Sendable {
     }
     
     func parse(url: URL) async throws -> ParsedContent {
-        // 1. 先尝试 HTTP 快速获取
+        // 1. 优先尝试镜像站 coolapk1s.com（无反爬，SSR 数据完整）
+        if let content = try? await parseViaMirror(url: url) {
+            return content
+        }
+        
+        // 2. 镜像站失败，尝试原站 HTTP
         if let content = try? await parseViaHTTP(url: url) {
             return content
         }
         
-        // 2. HTTP 失败，使用 WKWebView 降级
+        // 3. 都失败，使用 WKWebView 降级
         return try await parseViaWebView(url: url)
     }
     
-    // MARK: - HTTP 模式（快速尝试）
+    // MARK: - 镜像站模式（优先）
+    
+    private func parseViaMirror(url: URL) async throws -> ParsedContent? {
+        // 将 coolapk.com 转换为 coolapk1s.com
+        guard let mirrorURL = convertToMirrorURL(url) else { return nil }
+        
+        
+        let (data, response) = try await session.data(from: mirrorURL)
+        
+        guard let httpResponse = response as? HTTPURLResponse,
+              httpResponse.statusCode == 200 else {
+            return nil
+        }
+        
+        guard let html = String(data: data, encoding: .utf8) else { return nil }
+        
+        // 提取 __NEXT_DATA__ JSON
+        return extractFromNextData(html, url: url)
+    }
+    
+    private func convertToMirrorURL(_ url: URL) -> URL? {
+        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        components?.host = "www.coolapk1s.com"
+        return components?.url
+    }
+    
+    private func extractFromNextData(_ html: String, url: URL) -> ParsedContent? {
+        // 提取 <script id="__NEXT_DATA__" type="application/json">...</script>
+        guard let startRange = html.range(of: "<script id=\"__NEXT_DATA__\" type=\"application/json\">"),
+              let endRange = html.range(of: "</script>", range: startRange.upperBound..<html.endIndex) else {
+            return nil
+        }
+        
+        let jsonStr = String(html[startRange.upperBound..<endRange.lowerBound])
+        guard let jsonData = jsonStr.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {
+            return nil
+        }
+        
+        guard let pageProps = json["props"] as? [String: Any],
+              let feedProps = pageProps["pageProps"] as? [String: Any],
+              let feed = feedProps["feed"] as? [String: Any] else {
+            return nil
+        }
+        
+        // 提取字段
+        let title = feed["title"] as? String
+        let username = feed["username"] as? String
+        let message = feed["message"] as? String
+        let picArr = feed["picArr"] as? [String] ?? []
+        let messageCover = feed["message_cover"] as? String
+        
+        // 封面：优先用 message_cover，否则用第一张图片
+        let coverURL = messageCover?.isEmpty == false ? messageCover : picArr.first
+        
+        // 图片URL需要转换为镜像站的代理URL（避免酷安防盗链）
+        var imageURLs = picArr.compactMap { convertToProxyURL($0) }
+        
+        // 首图去重：封面来自第一张图片时，从正文图片列表中移除
+        if let coverProxy = convertToProxyURL(coverURL),
+           imageURLs.first == coverProxy {
+            imageURLs.removeFirst()
+        }
+        
+        // 清理正文：移除HTML标签、酷安表情标签
+        var cleanBody = message ?? ""
+        cleanBody = cleanBody.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+        cleanBody = cleanBody.replacingOccurrences(of: "\\[[^\\]]+\\]", with: "", options: .regularExpression)
+        cleanBody = cleanBody.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // 如果feed为null（内容不存在），返回nil
+        guard title != nil || cleanBody != nil else {
+            return nil
+        }
+        
+        
+        return ParsedContent(
+            title: title,
+            body: cleanBody,
+            author: username,
+            coverURL: convertToProxyURL(coverURL),
+            imageURLs: imageURLs,
+            platformContentID: extractContentID(from: url)
+        )
+    }
+    
+    /// 将酷安图片URL转换为镜像站代理URL，绕过防盗链
+    private func convertToProxyURL(_ urlString: String?) -> String? {
+        guard let urlString = urlString, !urlString.isEmpty else { return nil }
+        // 镜像站代理：https://image.coolapk1s.com/proxy?url={encoded_url}
+        let encoded = urlString.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? urlString
+        return "https://image.coolapk1s.com/proxy?url=\(encoded)"
+    }
+    
+    // MARK: - HTTP 模式（原站，兜底）
     
     private func parseViaHTTP(url: URL) async throws -> ParsedContent? {
         let (data, response) = try await session.data(from: url)
@@ -57,21 +156,17 @@ final class CoolapkParser: ContentParser, @unchecked Sendable {
             }
         }
         
-        // 尝试 Meta 标签提取，但只有当有高质量内容时才返回
+        // 尝试 Meta 标签提取
         if let content = extractFromMetaTags(html, url: url) {
-            // 检查内容质量 - 只有当有文章级别的内容时才返回
             if isHighQualityContent(content) {
                 return content
             }
         }
         
-        // 内容质量不足，返回 nil 以触发 WebView 降级
         return nil
     }
     
-    // 检查内容质量
     private func isHighQualityContent(_ content: ParsedContent) -> Bool {
-        // 检查标题质量（不能是页面标题）
         if let title = content.title {
             if title == "酷安APP" || (title.contains("酷安") && title.count < 10) {
                 // 可能是页面标题，不是文章标题
@@ -80,12 +175,10 @@ final class CoolapkParser: ContentParser, @unchecked Sendable {
             }
         }
         
-        // 检查正文质量
         if let body = content.body, body.count > 50 {
             return true
         }
         
-        // 检查图片数量
         if !content.imageURLs.isEmpty {
             return true
         }
@@ -93,7 +186,7 @@ final class CoolapkParser: ContentParser, @unchecked Sendable {
         return false
     }
     
-    // MARK: - WebView 模式（稳定降级）
+    // MARK: - WebView 模式（最终降级）
     
     @MainActor
     private func parseViaWebView(url: URL) async throws -> ParsedContent {
@@ -102,7 +195,6 @@ final class CoolapkParser: ContentParser, @unchecked Sendable {
             throw ParserError.parseFailed(reason: "无法加载酷安页面（WebView 返回 nil）")
         }
         
-        // 解析 COOLAPK_JSON: 前缀的结果
         guard result.hasPrefix("COOLAPK_JSON:") else {
             throw ParserError.parseFailed(reason: "页面解析失败（缺少 COOLAPK_JSON 前缀）")
         }
@@ -119,10 +211,6 @@ final class CoolapkParser: ContentParser, @unchecked Sendable {
         let images = json["images"] as? [String] ?? []
         let cover = json["cover"] as? String
         
-        guard title != nil || text != nil || !images.isEmpty else {
-            throw ParserError.parseFailed(reason: "未获取到内容（标题、正文、图片都为空）")
-        }
-        
         return ParsedContent(
             title: title,
             body: text,
@@ -133,10 +221,9 @@ final class CoolapkParser: ContentParser, @unchecked Sendable {
         )
     }
     
-    // MARK: - SSR 数据解析
+    // MARK: - SSR 数据解析（原站）
     
     private func extractFromSSRData(_ html: String, url: URL) -> ParsedContent? {
-        // 尝试提取 window.__INITIAL_STATE__
         if let startRange = html.range(of: "window.__INITIAL_STATE__=") {
             if let endRange = html.range(of: "</script>", range: startRange.upperBound..<html.endIndex) {
                 var jsonStr = String(html[startRange.upperBound..<endRange.lowerBound])
@@ -148,7 +235,6 @@ final class CoolapkParser: ContentParser, @unchecked Sendable {
                 }
             }
         }
-        
         return nil
     }
     
@@ -159,35 +245,33 @@ final class CoolapkParser: ContentParser, @unchecked Sendable {
         var imageURLs: [String] = []
         var coverURL: String?
         
-        // 尝试从 data 字段提取
         if let data = json["data"] as? [String: Any] {
             title = data["title"] as? String
             desc = data["description"] as? String ?? data["content"] as? String
-            
-            if let user = data["user"] as? [String: Any] {
-                author = user["username"] as? String ?? user["nickname"] as? String
-            }
-            
-            if let pics = data["pics"] as? [String] {
+            author = data["username"] as? String ?? data["author"] as? String
+            if let pics = data["picArr"] as? [String] {
                 imageURLs = pics
             }
-            
-            coverURL = imageURLs.first ?? data["pic"] as? String
+            coverURL = data["message_cover"] as? String
         }
         
-        guard title != nil || desc != nil else { return nil }
-        
-        return ParsedContent(
-            title: title,
-            body: desc,
-            author: author,
-            coverURL: coverURL,
-            imageURLs: imageURLs,
-            platformContentID: extractContentID(from: url)
-        )
+        if title != nil || desc != nil {
+            if coverURL == nil && !imageURLs.isEmpty {
+                coverURL = imageURLs.first
+            }
+            return ParsedContent(
+                title: title,
+                body: desc,
+                author: author,
+                coverURL: coverURL,
+                imageURLs: imageURLs,
+                platformContentID: extractContentID(from: url)
+            )
+        }
+        return nil
     }
     
-    // MARK: - Meta 标签提取（基础信息）
+    // MARK: - Meta 标签提取
     
     private func extractFromMetaTags(_ html: String, url: URL) -> ParsedContent? {
         let title = extractMeta(html, property: "og:title")
@@ -202,10 +286,8 @@ final class CoolapkParser: ContentParser, @unchecked Sendable {
             ?? extractMeta(html, name: "twitter:creator")
             ?? extractMeta(html, property: "og:article:author")
         
-        // 尝试从 HTML 中提取作者
         let htmlAuthor = extractHTMLAuthor(html)
         
-        // 只有当有实质性内容时才返回
         if title != nil || desc != nil || cover != nil || author != nil || htmlAuthor != nil {
             return ParsedContent(
                 title: title,
@@ -252,7 +334,7 @@ final class CoolapkParser: ContentParser, @unchecked Sendable {
         return String(text[r])
     }
     
-    // MARK: - 媒体下载（复用现有逻辑）
+    // MARK: - 媒体下载
     
     func downloadMedia(content: ParsedContent, itemID: UUID, mediaDir: URL) async throws -> [MediaAsset] {
         var assets: [MediaAsset] = []
@@ -277,7 +359,8 @@ final class CoolapkParser: ContentParser, @unchecked Sendable {
         
         for (index, imageURL) in content.imageURLs.enumerated() {
             guard let url = URL(string: imageURL) else { continue }
-            let fileName = "image_\(String(format: "%03d", index + 1)).jpg"
+            let ext = url.pathExtension.isEmpty ? "jpg" : url.pathExtension
+            let fileName = "image_\(String(format: "%03d", index + 1)).\(ext)"
             let localPath = itemDir.appendingPathComponent(fileName)
             if await downloadFile(from: url, to: localPath) {
                 let asset = MediaAsset(

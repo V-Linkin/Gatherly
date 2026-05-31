@@ -60,7 +60,7 @@ docs/                   产品规格 + 设计文档
 - **媒体另存为**: `MediaExporter` 工具类负责命名生成和文件导出，支持右键单个导出和工具栏批量导出。单个导出命名：`{平台名}_{文件夹}_{作者}_{序号}_{日期}.{扩展名}`，无文件夹时跳过该段。批量导出时自动创建子文件夹 `{自定义平台名}_{作者}_{日期}`，媒体文件放入其中。`ExportPickerSheet` 用于批量导出时的媒体类型选择（媒体区域/正文图片/全部）。
 - **微博 AJAX API**: 微博移动页面和桌面页面均有严格反爬验证（Sina Visitor System），WKWebView 无法通过。`WeiboParser` 优先使用 `m.weibo.cn/statuses/show?id=` AJAX 接口（需 `X-Requested-With: XMLHttpRequest` 请求头），直接返回 JSON 数据，包含正文、作者、图片列表。兜底使用 HTML `render_data` 解析。
 - **小红书双模式解析**: 未登录时小红书页面无 SSR 数据，`XiaohongshuParser` 采用双模式：先尝试 HTTP（检查 `__INITIAL_STATE__`），失败则降级 WKWebView（`ZhihuWebLoader`）。JS 提取选择器包括 `#detail-desc`、`.note-text`、`[class*="content"]`，兜底遍历文本节点。封面去重：`coverURL` 取自 `imageURLs.first` 时，从 `imageURLs` 中移除第一张图片避免重复显示。
-- **酷安双模式解析**: `CoolapkParser` 采用 HTTP + WebView 双模式架构，通过 `ZhihuWebLoader` 实现完整内容提取，包括正文、图片列表、作者信息。
+- **酷安镜像站解析**: `CoolapkParser` 优先使用 `coolapk1s.com` 镜像站绕过酷安反爬（原站返回扫码挑战页）。镜像站使用 Next.js SSR，`__NEXT_DATA__` JSON 包含完整 feed 数据（标题/正文/作者/图片列表）。图片通过 `image.coolapk1s.com/proxy?url=` 代理访问绕过防盗链。降级顺序：镜像站 -> 原站 HTTP -> WKWebView。
 
 - **X 解析器封面去重**: `XParser` 封面逻辑：视频推文优先用 `thumbnail_url` 作为封面，图片推文用首图（首图与封面相同时从 `imageURLs` 移除避免重复），纯文字兜底用头像。
 - **视频播放**: `VideoPlayerView`（Views/Components/VideoPlayerView.swift）使用 `AVPlayerView` 播放本地视频，支持播放/暂停/进度条/全屏。`ItemDetailView` 通过全局 `NSEvent` 监听器实现视频区域的 Shift+滚轮横向滚动（AVPlayerView 内部会拦截滚轮事件，需在 App 层面转发给外层 ScrollView）。

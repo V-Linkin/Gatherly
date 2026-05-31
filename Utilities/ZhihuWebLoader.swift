@@ -282,9 +282,8 @@ final class ZhihuWebLoader: NSObject, WKNavigationDelegate {
                                         ',text:' + coolapkResult.text.length +
                                         ',images:' + coolapkResult.images.length;
                     
-                    if (coolapkResult.text.length > 20 || coolapkResult.images.length > 0) {
-                        return 'COOLAPK_JSON:' + JSON.stringify(coolapkResult);
-                    }
+                    // 即使正文为空，也返回 debug 信息便于排查
+                    return 'COOLAPK_JSON:' + JSON.stringify(coolapkResult);
                 }
 
                 // === 通用 - 取主要内容区 ===
@@ -316,6 +315,8 @@ final class ZhihuWebLoader: NSObject, WKNavigationDelegate {
         Task {
             do {
                 if let result = try await webView.evaluateJavaScript(js) as? String, !result.isEmpty {
+                    // Debug: print JS result to help diagnose
+                    print("[ZhihuWebLoader] JS result: \(result)")
                     Task { @MainActor in
                         if !self.isCompleted {
                             self.isCompleted = true
@@ -323,6 +324,7 @@ final class ZhihuWebLoader: NSObject, WKNavigationDelegate {
                         }
                     }
                 } else {
+                    print("[ZhihuWebLoader] JS returned empty or non-string")
                     Task { @MainActor in
                         if !self.isCompleted {
                             self.isCompleted = true
@@ -331,6 +333,7 @@ final class ZhihuWebLoader: NSObject, WKNavigationDelegate {
                     }
                 }
             } catch {
+                print("[ZhihuWebLoader] JS evaluation error: \(error)")
                 Task { @MainActor in
                     if !self.isCompleted {
                         self.isCompleted = true
