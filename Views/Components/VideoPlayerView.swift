@@ -7,8 +7,9 @@ struct VideoPlayerView: NSViewRepresentable {
     let url: URL
     
     func makeNSView(context: Context) -> VideoPlayerNSView {
-        let view = VideoPlayerNSView()
+        let view = VideoPlayerNSView(frame: NSRect(x: 0, y: 0, width: 400, height: 280))
         view.loadVideo(url: url)
+        print("[DEBUG:VideoPlayer] makeNSView url=\(url.path)")
         return view
     }
     
@@ -24,6 +25,8 @@ class VideoPlayerNSView: NSView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
+        layer?.backgroundColor = NSColor.black.cgColor
+        print("[DEBUG:VideoPlayerNSView] init frame=\(frameRect)")
     }
     
     required init?(coder: NSCoder) {
@@ -32,23 +35,30 @@ class VideoPlayerNSView: NSView {
     }
     
     func loadVideo(url: URL) {
+        print("[DEBUG:VideoPlayerNSView] loadVideo \(url.path)")
         let player = AVPlayer(url: url)
         self.player = player
         
         let playerLayer = AVPlayerLayer(player: player)
         playerLayer.videoGravity = .resizeAspect
         playerLayer.backgroundColor = NSColor.black.cgColor
-        playerLayer.frame = bounds
+        playerLayer.frame = self.bounds
         self.layer?.addSublayer(playerLayer)
         self.playerLayer = playerLayer
+        
+        print("[DEBUG:VideoPlayerNSView] layer bounds=\(self.bounds), playerLayer frame=\(playerLayer.frame)")
     }
     
     override func layout() {
         super.layout()
+        print("[DEBUG:VideoPlayerNSView] layout bounds=\(bounds)")
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
         playerLayer?.frame = bounds
+        CATransaction.commit()
     }
     
-    /// 忽略滚轮事件 - 不调用 super，事件传递给外层 ScrollView
+    /// 忽略滚轮事件
     override func scrollWheel(with event: NSEvent) {
         self.nextResponder?.scrollWheel(with: event)
     }
