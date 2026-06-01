@@ -176,6 +176,7 @@ struct RecentItemsSection: View {
     let items: [Item]
     @Binding var selectedNav: NavigationTarget?
     @Binding var previousNav: NavigationTarget?
+    @Environment(AppState.self) private var appState
     
     private let cardWidth: CGFloat = 200
     private let cardHeight: CGFloat = 240
@@ -202,12 +203,33 @@ struct RecentItemsSection: View {
                             }
                             .buttonStyle(.plain)
                             .frame(width: cardWidth)
+                            .contextMenu {
+                                Button {
+                                    appState.hideItem(item)
+                                } label: {
+                                    Label("不显示该内容", systemImage: "eye.slash")
+                                }
+                                Divider()
+                                Button("删除", role: .destructive) {
+                                    deleteRecentItem(item)
+                                }
+                            }
                         }
                     }
                 }
                 .frame(height: cardHeight)
             }
         }
+    }
+    
+    private func deleteRecentItem(_ item: Item) {
+        var updated = item
+        updated.deletedAt = Date()
+        updated.contentStatus = .trashed
+        try? appState.itemRepo.update(updated)
+        let record = TrashRecord(itemID: item.id, originalFolderID: item.folderID, originalArchiveStatus: item.archiveStatus)
+        try? appState.trashRepo.insert(record)
+        appState.refreshData()
     }
 }
 

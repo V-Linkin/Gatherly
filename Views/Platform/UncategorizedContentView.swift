@@ -12,6 +12,8 @@ struct UncategorizedContentView: View {
     @State private var moveTargetItemID: UUID?
     @State private var showMoveOverlay = false
     @State private var showMoveToPlatform = false
+    private struct MoveTarget: Identifiable { let id: UUID }
+    @State private var moveTarget: MoveTarget?
     
     enum ViewMode: String, CaseIterable {
         case grid = "网格"
@@ -84,10 +86,11 @@ struct UncategorizedContentView: View {
                 MoveToFolderOverlay(itemID: itemID, isPresented: $showMoveOverlay)
             }
         }
-        .sheet(isPresented: $showMoveToPlatform) {
-            if let itemID = moveTargetItemID {
-                MoveToPlatformSheet(itemID: itemID, isPresented: $showMoveToPlatform)
-            }
+        .sheet(item: $moveTarget) { target in
+            MoveToPlatformSheet(itemID: target.id, isPresented: Binding(
+                get: { moveTarget != nil },
+                set: { if !$0 { moveTarget = nil } }
+            ))
         }
         .onAppear {
             if let saved = UserDefaults.standard.string(forKey: "viewMode_uncategorized"),
@@ -157,8 +160,7 @@ struct UncategorizedContentView: View {
             Label("移动到文件夹", systemImage: "folder")
         }
         Button {
-            moveTargetItemID = item.id
-            showMoveToPlatform = true
+            moveTarget = MoveTarget(id: item.id)
         } label: {
             Label("移动到平台", systemImage: "arrow.right.circle")
         }

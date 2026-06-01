@@ -28,6 +28,28 @@ final class AppState {
     var recentItems: [Item] = []
     var customPlatformCounts: [UUID: Int] = [:]
     var refreshCounter: Int = 0
+    
+    private static let hiddenItemsKey = "hiddenRecentItemIDs"
+    
+    var hiddenItemIDs: Set<UUID> {
+        get {
+            guard let data = UserDefaults.standard.data(forKey: Self.hiddenItemsKey),
+                  let ids = try? JSONDecoder().decode(Set<UUID>.self, from: data) else { return [] }
+            return ids
+        }
+        set {
+            if let data = try? JSONEncoder().encode(newValue) {
+                UserDefaults.standard.set(data, forKey: Self.hiddenItemsKey)
+            }
+        }
+    }
+    
+    func hideItem(_ item: Item) {
+        var hidden = hiddenItemIDs
+        hidden.insert(item.id)
+        hiddenItemIDs = hidden
+        recentItems = recentItems.filter { $0.id != item.id }
+    }
     var recentFolders: [Folder] = []
     
     var searchQuery = ""
@@ -54,7 +76,8 @@ final class AppState {
             guard let self else { return }
             let customPlatforms = (try? self.customPlatformRepo.fetchAll()) ?? []
             
-            let recentItems = (try? self.itemRepo.fetchRecent()) ?? []
+            let hiddenIDs = await MainActor.run { self.hiddenItemIDs }
+            let recentItems = (try? self.itemRepo.fetchRecent())?.filter { !hiddenIDs.contains($0.id) } ?? []
             let recentFolders = (try? self.folderRepo.fetchRecent(limit: 5)) ?? []
             try? self.searchRepo.rebuildIndex()
             

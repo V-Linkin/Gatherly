@@ -601,17 +601,21 @@ struct MoveToFolderSheet: View {
 // MARK: - MoveToPlatformSheet
 
 struct MoveToPlatformSheet: View {
-    let itemID: UUID
+    let itemID: UUID?
+    var itemIDs: [UUID] = []
     @Binding var isPresented: Bool
+    var onMoved: (() -> Void)?
     @Environment(AppState.self) private var appState
     @State private var selectedPlatformID: UUID? = nil
     @State private var item: Item?
+
     
     var body: some View {
         VStack(spacing: 0) {
             Text("移动到平台")
                 .font(.headline)
                 .padding()
+
             
             Divider()
             
@@ -641,8 +645,10 @@ struct MoveToPlatformSheet: View {
                                     Image(systemName: "checkmark").foregroundStyle(.blue)
                                 }
                             }
+                            .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.horizontal, 16)
                             .padding(.vertical, 10)
+                            .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
                         if cp.id != appState.customPlatforms.last?.id {
@@ -659,13 +665,17 @@ struct MoveToPlatformSheet: View {
                 Spacer()
                 Button("移动") {
                     guard let platformID = selectedPlatformID else { return }
-                    guard var item = try? appState.itemRepo.find(id: itemID) else { return }
-                    item.customPlatformID = platformID
-                    item.platform = .custom
-                    item.folderID = nil
-                    try? appState.itemRepo.update(item)
+                    let ids = itemIDs.isEmpty ? (itemID.map { [$0] } ?? []) : itemIDs
+                    for id in ids {
+                        guard var item = try? appState.itemRepo.find(id: id) else { continue }
+                        item.customPlatformID = platformID
+                        item.platform = .custom
+                        item.folderID = nil
+                        try? appState.itemRepo.update(item)
+                    }
                     isPresented = false
                     appState.refreshData()
+                    onMoved?()
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(selectedPlatformID == nil)
@@ -674,8 +684,14 @@ struct MoveToPlatformSheet: View {
         }
         .frame(width: 320, height: 340)
         .onAppear {
-            item = try? appState.itemRepo.find(id: itemID)
-            selectedPlatformID = item?.customPlatformID
+            appState.customPlatforms = (try? appState.customPlatformRepo.fetchAll()) ?? []
+            if let singleID = itemID {
+                item = try? appState.itemRepo.find(id: singleID)
+                selectedPlatformID = item?.customPlatformID
+            } else if let firstID = itemIDs.first {
+                item = try? appState.itemRepo.find(id: firstID)
+                selectedPlatformID = item?.customPlatformID
+            }
         }
     }
 }
