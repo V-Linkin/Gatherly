@@ -115,7 +115,7 @@ struct NewCustomPlatformSheet: View {
     }
     
     private func autoAssignUncategorized(name: String, platformID: UUID) -> Int {
-        guard let matchedPlatform = Platform.allCases.first(where: { $0.defaultDisplayName == name }) else {
+        guard let matchedPlatform = Platform.allCases.first(where: { $0.defaultDisplayName.caseInsensitiveCompare(name) == .orderedSame }) else {
             return 0
         }
         

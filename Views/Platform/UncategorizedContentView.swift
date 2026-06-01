@@ -96,6 +96,9 @@ struct UncategorizedContentView: View {
             }
             loadData()
         }
+        .onChange(of: appState.refreshCounter) { _, _ in
+            loadData()
+        }
     }
     
     private var mediaGridView: some View {

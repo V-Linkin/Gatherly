@@ -182,7 +182,7 @@ final class ImportService {
         logger.info("所有自定义平台: \(allPlatforms.map { $0.name }.joined(separator: ", "), privacy: .public)")
         let targetName = platform.defaultDisplayName
         logger.info("查找目标平台名: \(targetName, privacy: .public)")
-        let match = allPlatforms.first { $0.name == targetName }
+        let match = allPlatforms.first { $0.name.caseInsensitiveCompare(targetName) == .orderedSame }
         if let match {
             logger.info("找到匹配平台: \(match.name, privacy: .public) id=\(match.id.uuidString, privacy: .public)")
         } else {

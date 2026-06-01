@@ -27,6 +27,7 @@ final class AppState {
     
     var recentItems: [Item] = []
     var customPlatformCounts: [UUID: Int] = [:]
+    var refreshCounter: Int = 0
     var recentFolders: [Folder] = []
     
     var searchQuery = ""
@@ -69,6 +70,7 @@ final class AppState {
                 self.recentItems = recentItems
                 self.recentFolders = recentFolders
                 self.customPlatformCounts = counts
+                self.refreshCounter += 1
             }
         }
     }

@@ -1,5 +1,6 @@
 import Foundation
 import WebKit
+import os.log
 
 /// 豆瓣请求频率限制器，防止触发风控
 private actor DoubanRateLimiter {
@@ -17,6 +18,8 @@ private actor DoubanRateLimiter {
 }
 
 final class DoubanParser: ContentParser, @unchecked Sendable {
+
+    private let logger = Logger(subsystem: "com.archiver.app", category: "DoubanParser")
 
     /// 请求间隔控制：避免短时间内大量请求触发豆瓣风控
     private static let rateLimiter = DoubanRateLimiter()
@@ -69,6 +72,7 @@ final class DoubanParser: ContentParser, @unchecked Sendable {
         let itemDir = mediaDir.appendingPathComponent(itemID.uuidString)
         try fileManager.createDirectory(at: itemDir, withIntermediateDirectories: true)
 
+        // 下载封面图
         if let coverURL = content.coverURL, let url = URL(string: coverURL) {
             let fileName = "cover.jpg"
             let localPath = itemDir.appendingPathComponent(fileName)
@@ -82,6 +86,28 @@ final class DoubanParser: ContentParser, @unchecked Sendable {
                 )
                 try MediaRepository().insert(asset)
                 assets.append(asset)
+            }
+        }
+
+        // 下载正文图片
+        if let bodyImageURLsStr = content.rawMetadata["bodyImageURLs"] {
+            let imageURLs = bodyImageURLsStr.components(separatedBy: "||")
+            for (index, imageURLStr) in imageURLs.enumerated() {
+                guard let url = URL(string: imageURLStr) else { continue }
+                let ext = url.pathExtension.isEmpty ? "jpg" : url.pathExtension
+                let fileName = "image_\(index).\(ext)"
+                let localPath = itemDir.appendingPathComponent(fileName)
+                if await downloadFile(from: url, to: localPath) {
+                    let fileSize = (try? fileManager.attributesOfItem(atPath: localPath.path)[.size] as? Int64) ?? 0
+                    let asset = MediaAsset(
+                        itemID: itemID, type: .image,
+                        localPath: "\(itemID.uuidString)/\(fileName)",
+                        remoteURL: imageURLStr, fileName: fileName,
+                        fileSize: fileSize, downloadStatus: .completed
+                    )
+                    try MediaRepository().insert(asset)
+                    assets.append(asset)
+                }
             }
         }
 
@@ -107,7 +133,11 @@ final class DoubanParser: ContentParser, @unchecked Sendable {
         let subjectID = extractSubjectID(from: url)
         let title = extractMeta(html, property: "og:title") ?? extractPageTitle(html)
         let cover = extractMeta(html, property: "og:image")
-        let author = extractDirector(html) ?? extractAuthor(html)
+
+        let directorResult = extractDirector(html)
+        let authorResult = extractAuthor(html)
+
+        let author = directorResult ?? authorResult
 
         // 评分
         var rating: String?
@@ -168,14 +198,20 @@ final class DoubanParser: ContentParser, @unchecked Sendable {
         // 第二步：从 HTML 直接解析所有字段
         let metaTitle = extractMeta(html, property: "og:title") ?? extractPageTitle(html)
         let metaDesc = extractMeta(html, property: "og:description") ?? extractMeta(html, name: "description")
-        let metaCover = extractMeta(html, property: "og:image")
         let metaAuthor = extractMeta(html, name: "author")
         
         // 从 HTML 正文区域提取内容
         let htmlBody = extractReviewBodyFromHTML(html)
         
+        // 提取正文中的图片 URL
+        let bodyImageURLs = extractReviewImageURLs(from: html)
+        
+        let metaCover = extractMeta(html, property: "og:image")
+        
         // 提取作者（从影评页面的特定结构）
-        let htmlAuthor = extractReviewAuthorFromHTML(html) ?? metaAuthor
+        let reviewAuthorResult = extractReviewAuthorFromHTML(html)
+        logger.info("extractReviewAuthorFromHTML 结果: \(reviewAuthorResult ?? "nil", privacy: .public)")
+        let htmlAuthor = reviewAuthorResult ?? metaAuthor
         
         // 组装标题
         var title = metaTitle
@@ -195,20 +231,11 @@ final class DoubanParser: ContentParser, @unchecked Sendable {
         // 组装作者
         let author = htmlAuthor
         
-        // 组装封面：优先 meta，兜底从 subject 页面获取
-        var cover = metaCover
-        let needSubjectCover = (cover == nil) || (cover?.contains("thing_review") == true)
-        if needSubjectCover, let subjectID = extractSubjectID(from: url) {
-            await Self.respectRateLimit()
-            let subjectURL = URL(string: "https://movie.douban.com/subject/\(subjectID)/") ?? url
-            var subjectRequest = URLRequest(url: subjectURL)
-            subjectRequest.setValue(desktopUA, forHTTPHeaderField: "User-Agent")
-            if let (subjectData, _) = try? await URLSession.shared.data(for: subjectRequest),
-               let subjectHTML = String(data: subjectData, encoding: .utf8) {
-                if let poster = extractMeta(subjectHTML, property: "og:image") {
-                    cover = poster
-                }
-            }
+        // 组装封面：从 JSON-LD 获取电影海报（最可靠）
+        var cover: String? = nil
+        cover = extractMoviePosterFromReviewHTML(html)
+        if cover == nil {
+            cover = metaCover
         }
         
         // 第三步：尝试用 WKWebView 补充内容（如果 HTML 解析不够完整）
@@ -224,7 +251,12 @@ final class DoubanParser: ContentParser, @unchecked Sendable {
             finalBody = body
         }
         let finalAuthor = webResult.author ?? author
-        let finalCover = webResult.cover ?? cover
+        let finalCover = cover
+        
+        var metadata: [String: String] = ["type": "review", "source": "html+webview"]
+        if !bodyImageURLs.isEmpty {
+            metadata["bodyImageURLs"] = bodyImageURLs.joined(separator: "||")
+        }
         
         return ParsedContent(
             title: finalTitle,
@@ -232,7 +264,7 @@ final class DoubanParser: ContentParser, @unchecked Sendable {
             author: finalAuthor,
             coverURL: finalCover,
             platformContentID: reviewID,
-            rawMetadata: ["type": "review", "source": "html+webview"]
+            rawMetadata: metadata
         )
     }
 
@@ -317,21 +349,17 @@ final class DoubanParser: ContentParser, @unchecked Sendable {
     
     /// 从 HTML 中提取影评正文
     private func extractReviewBodyFromHTML(_ html: String) -> String? {
-        // 尝试多种选择器匹配影评正文区域
-        let patterns = [
-            #"<div\s+id="link-report"[^>]*>(.*?)</div>"#,
-            #"<div\s+class="review-content[^"]*"[^>]*>(.*?)</div>"#,
-            #"<div\s+class="main-review[^"]*"[^>]*>(.*?)</div>"#,
-            #"<div\s+class="review-body[^"]*"[^>]*>(.*?)</div>"#,
-            #"<span\s+class="short"[^>]*>(.*?)</span>"#,
+        // 按优先级尝试匹配影评正文区域，使用嵌套标签匹配而非简单正则
+        let containerPatterns: [(name: String, pattern: String)] = [
+            ("review-content", #"class="review-content[^"]*""#),
+            ("link-report", #"id="link-report[^"]*""#),
+            ("main-review", #"class="main-review[^"]*""#),
+            ("review-body", #"class="review-body[^"]*""#),
         ]
         
-        for pattern in patterns {
-            if let regex = try? NSRegularExpression(pattern: pattern, options: .dotMatchesLineSeparators),
-               let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
-               let range = Range(match.range(at: 1), in: html) {
-                let content = String(html[range])
-                let text = cleanHTML(content)
+        for (name, attrPattern) in containerPatterns {
+            if let fullContent = extractNestedDivContent(html, containing: attrPattern) {
+                let text = cleanHTML(fullContent)
                 if text.count > 30 {
                     return text
                 }
@@ -359,13 +387,162 @@ final class DoubanParser: ContentParser, @unchecked Sendable {
         return nil
     }
     
+    /// 提取正文中的图片 URL 列表
+    func extractReviewImageURLs(from html: String) -> [String] {
+        // 先找到正文容器
+        let containerPatterns = [
+            #"class="review-content[^"]*""#,
+            #"id="link-report[^"]*""#,
+            #"class="main-review[^"]*""#,
+        ]
+        
+        var bodyHTML = ""
+        for attrPattern in containerPatterns {
+            if let content = extractNestedDivContent(html, containing: attrPattern) {
+                bodyHTML = content
+                break
+            }
+        }
+        
+        // 如果没有找到容器，使用整个 HTML
+        if bodyHTML.isEmpty {
+            bodyHTML = html
+        }
+        
+        // 提取所有 <img> 标签的 src
+        var imageURLs: [String] = []
+        let imgPattern = #"<img[^>]*\bsrc="([^"]*)"[^>]*/?>"#
+        if let regex = try? NSRegularExpression(pattern: imgPattern, options: .caseInsensitive) {
+            let matches = regex.matches(in: bodyHTML, range: NSRange(bodyHTML.startIndex..., in: bodyHTML))
+            for match in matches {
+                if let range = Range(match.range(at: 1), in: bodyHTML) {
+                    var src = String(bodyHTML[range]).trimmingCharacters(in: .whitespacesAndNewlines)
+                    // 过滤掉表情、小图标等
+                    if src.contains("img") && (src.contains("doubanio.com") || src.contains("douban.com")) {
+                        // 转为原图 URL（去掉缩略图后缀）
+                        src = src.replacingOccurrences(of: #"\/s_ratio_poster\/"#, with: "/raw/")
+                        src = src.replacingOccurrences(of: #"\/m_ratio_poster\/"#, with: "/raw/")
+                        src = src.replacingOccurrences(of: #"\/s_crop_poster\/"#, with: "/raw/")
+                        // 确保是 https
+                        if src.hasPrefix("//") {
+                            src = "https:" + src
+                        }
+                        if !imageURLs.contains(src) {
+                            imageURLs.append(src)
+                        }
+                    }
+                }
+            }
+        }
+        
+        // 也尝试 data-src（懒加载图片）
+        let dataSrcPattern = #"<img[^>]*\bdata-src="([^"]*)"[^>]*/?>"#
+        if let regex = try? NSRegularExpression(pattern: dataSrcPattern, options: .caseInsensitive) {
+            let matches = regex.matches(in: bodyHTML, range: NSRange(bodyHTML.startIndex..., in: bodyHTML))
+            for match in matches {
+                if let range = Range(match.range(at: 1), in: bodyHTML) {
+                    var src = String(bodyHTML[range]).trimmingCharacters(in: .whitespacesAndNewlines)
+                    if src.contains("doubanio.com") || src.contains("douban.com") {
+                        if src.hasPrefix("//") { src = "https:" + src }
+                        if !imageURLs.contains(src) {
+                            imageURLs.append(src)
+                        }
+                    }
+                }
+            }
+        }
+        
+        return imageURLs
+    }
+    
+    /// 通过追踪嵌套深度提取 <div> 内容（解决正则 .\*? 截断问题）
+    private func extractNestedDivContent(_ html: String, containing attrPattern: String) -> String? {
+        // 找到包含指定属性的 <div> 开始标签
+        let divPattern = "<div[^>]*\(attrPattern)[^>]*>"
+        guard let regex = try? NSRegularExpression(pattern: divPattern, options: .dotMatchesLineSeparators),
+              let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)) else {
+            return nil
+        }
+        
+        let matchRange = match.range
+        guard let contentStart = Range(NSRange(location: matchRange.upperBound, length: 0), in: html) else {
+            return nil
+        }
+        
+        // 从 <div 开始标签的 < 处追踪嵌套深度
+        let tagStart = Range(NSRange(location: matchRange.location, length: 0), in: html)!
+        var depth = 1
+        var pos = contentStart.lowerBound
+        var endPos = html.endIndex
+        
+        while pos < html.endIndex && depth > 0 {
+            // 查找下一个 <div 或 </div>
+            if html[pos...].hasPrefix("<div") || html[pos...].hasPrefix("<DIV") {
+                // 检查是 <div> 还是 </div>
+                if pos != html.startIndex {
+                    let prevIndex = html.index(before: pos)
+                    if html[prevIndex] == "/" {
+                        depth -= 1
+                        if depth == 0 {
+                            // 找到 </div> 的结束位置
+                            if let closeEnd = html.range(of: ">", range: pos..<html.endIndex) {
+                                endPos = closeEnd.upperBound
+                            }
+                            break
+                        }
+                    } else {
+                        depth += 1
+                    }
+                }
+            } else if html[pos...].hasPrefix("</div>") || html[pos...].hasPrefix("</DIV>") {
+                depth -= 1
+                if depth == 0 {
+                    if let closeEnd = html.range(of: ">", range: pos..<html.endIndex) {
+                        endPos = closeEnd.upperBound
+                    }
+                    break
+                }
+                pos = html.index(pos, offsetBy: 6)
+                continue
+            }
+            pos = html.index(after: pos)
+        }
+        
+        if depth == 0 {
+            return String(html[contentStart.lowerBound..<endPos])
+        }
+        return nil
+    }
+    
     /// 从 HTML 中提取影评作者
     private func extractReviewAuthorFromHTML(_ html: String) -> String? {
-        // 豆瓣影评作者通常在这些位置
+        // 策略1: 从 JSON-LD 结构化数据中提取作者（最可靠）
+        if let authorFromLD = extractAuthorFromJSONLD(html) {
+            return authorFromLD
+        }
+        
+        // 策略2: 从 data-author 属性提取
+        if let dataAuthor = extractFirst(html, pattern: #"data-author="([^"]+)""#) {
+            let trimmed = dataAuthor.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty && trimmed.count < 30 && trimmed != "豆瓣" {
+                return trimmed
+            }
+        }
+        
+        // 策略3: 从 <header class="main-hd"> 区域提取作者链接
+        if let authorFromHeader = extractAuthorFromHeaderArea(html) {
+            return authorFromHeader
+        }
+        
+        // 策略4: 找到所有 douban.com/people/ 的链接，取第一个有文字内容的
+        if let authorFromPeopleLink = extractFirstPeopleLinkWithText(html) {
+            return authorFromPeopleLink
+        }
+        
+        // 策略5: 旧版模式匹配
         let patterns = [
             #"<a[^>]*class="name"[^>]*>([^<]+)</a>"#,
             #"<span[^>]*class="name"[^>]*>\s*<a[^>]*>([^<]+)</a>"#,
-            #"<a[^>]*href="https?://www\.douban\.com/people/[^"]*"[^>]*>([^<]+)</a>"#,
             #"<span[^>]*class="author"[^>]*>([^<]+)</span>"#,
         ]
         
@@ -377,6 +554,128 @@ final class DoubanParser: ContentParser, @unchecked Sendable {
                 }
             }
         }
+        return nil
+    }
+    
+    /// 从 JSON-LD 结构化数据中提取作者名
+    private func extractAuthorFromJSONLD(_ html: String) -> String? {
+        // 匹配 <script type="application/ld+json"> 块
+        guard let scriptRegex = try? NSRegularExpression(pattern: #"<script\s+type="application/ld\+json">(.*?)</script>"#, options: .dotMatchesLineSeparators) else { return nil }
+        let matches = scriptRegex.matches(in: html, range: NSRange(html.startIndex..., in: html))
+        
+        for match in matches {
+            guard let range = Range(match.range(at: 1), in: html) else { continue }
+            let jsonStr = String(html[range]).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let jsonData = jsonStr.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else { continue }
+            
+            // 直接从顶层 author 字段提取
+            if let author = json["author"] as? [String: Any],
+               let name = author["name"] as? String,
+               !name.isEmpty {
+                return name
+            }
+        }
+        return nil
+    }
+    
+    /// 从 <header class="main-hd"> 区域提取作者名
+    private func extractAuthorFromHeaderArea(_ html: String) -> String? {
+        // 找到 main-hd 区域（包含 header 标签本身）
+        guard let headerTagRange = html.range(of: #"<header class="main-hd""#) else { return nil }
+        // 从 header 标签开始搜索 3000 字符
+        let searchStart = headerTagRange.lowerBound
+        let searchEndIndex = html.index(searchStart, offsetBy: min(3000, html.distance(from: searchStart, to: html.endIndex)), limitedBy: html.endIndex) ?? html.endIndex
+        let headerArea = String(html[searchStart..<searchEndIndex])
+        
+        // 策略1: 找 douban.com/people/ 链接，捕获链接内的纯文本
+        let peopleLinkPattern = #"<a[^>]*href="[^"]*douban\.com/people/[^"]*"[^>]*>([^<]+)</a>"#
+        if let author = extractFirst(headerArea, pattern: peopleLinkPattern) {
+            let trimmed = author.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty && trimmed.count < 30 && trimmed != "豆瓣" {
+                return trimmed
+            }
+        }
+        
+        // 策略2: 找 <a> 标签内含有 "people" 链接的，不管内部是否嵌套了其他标签
+        // 提取所有 <a> 标签内容，找含 people 链接的
+        if let aTagRegex = try? NSRegularExpression(pattern: #"<a[^>]*href="[^"]*douban\.com/people/[^"]*"[^>]*>(.*?)</a>"#, options: .dotMatchesLineSeparators) {
+            let matches = aTagRegex.matches(in: headerArea, range: NSRange(headerArea.startIndex..., in: headerArea))
+            for match in matches {
+                if let innerRange = Range(match.range(at: 1), in: headerArea) {
+                    let inner = String(headerArea[innerRange])
+                    // 如果内部是纯文本（不含标签），直接取
+                    if !inner.contains("<") {
+                        let trimmed = inner.trimmingCharacters(in: .whitespacesAndNewlines)
+                        logger.info("[extractAuthorFromHeader] 策略2纯文本匹配: \(trimmed, privacy: .public)")
+                        if !trimmed.isEmpty && trimmed.count < 30 && trimmed != "豆瓣" {
+                            return trimmed
+                        }
+                    }
+                    // 如果内部含 <img> 标签，跳过（是头像）
+                    // 如果内部有其他文本，清理 HTML 后取
+                    let cleaned = inner.replacingOccurrences(of: #"<[^>]+>"#, with: "", options: .regularExpression).trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !cleaned.isEmpty && cleaned.count < 30 && cleaned != "豆瓣" && !cleaned.contains("http") {
+                        return cleaned
+                    }
+                }
+            }
+        }
+        
+        // 策略3: 在 header 后的区域中找任何 <a> 标签，取第一个有 < 20 字纯文本的（可能是作者名）
+        if let aTagRegex = try? NSRegularExpression(pattern: #"<a[^>]*>([^<]{1,20})</a>"#, options: []) {
+            let matches = aTagRegex.matches(in: headerArea, range: NSRange(headerArea.startIndex..., in: headerArea))
+            for match in matches.prefix(5) {
+                if let textRange = Range(match.range(at: 1), in: headerArea) {
+                    let text = String(headerArea[textRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+                    // 排除导航链接、短文本
+                    if !text.isEmpty && text.count >= 2 && text.count <= 20 
+                        && text != "豆瓣" && text != "首页" && text != "读书" && text != "电影" && text != "音乐"
+                        && text != "小组" && text != "阅读" && text != "FM" && text != "时间" && text != "豆品" {
+                        return text
+                    }
+                }
+            }
+        }
+        
+        return nil
+    }
+    
+    /// 找到 HTML 中所有 douban.com/people/ 链接，返回第一个有文字内容的
+    private func extractFirstPeopleLinkWithText(_ html: String) -> String? {
+        // 策略1: 纯文本链接（不含嵌套标签）
+        let textPattern = #"<a[^>]*href="[^"]*douban\.com/people/[^"]*"[^>]*>([^<]+)</a>"#
+        if let regex = try? NSRegularExpression(pattern: textPattern, options: .caseInsensitive) {
+            let matches = regex.matches(in: html, range: NSRange(html.startIndex..., in: html))
+            for match in matches {
+                if let range = Range(match.range(at: 1), in: html) {
+                    let name = String(html[range]).trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !name.isEmpty && name.count < 30 && name != "豆瓣" {
+                                        return name
+                    }
+                }
+            }
+        }
+        
+        // 策略2: 宽松匹配（允许内部嵌套标签，清理后取纯文本）
+        let loosePattern = #"<a[^>]*href="[^"]*douban\.com/people/[^"]*"[^>]*>(.*?)</a>"#
+        if let regex = try? NSRegularExpression(pattern: loosePattern, options: [.caseInsensitive, .dotMatchesLineSeparators]) {
+            let matches = regex.matches(in: html, range: NSRange(html.startIndex..., in: html))
+            for match in matches {
+                if let range = Range(match.range(at: 1), in: html) {
+                    let inner = String(html[range])
+                    // 跳过只含 <img> 的链接（头像）
+                    if inner.contains("<img") && !inner.replacingOccurrences(of: #"<img[^>]*>"#, with: "", options: .regularExpression).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+                        // Has img but also has text
+                    }
+                    let cleaned = inner.replacingOccurrences(of: #"<[^>]+>"#, with: "", options: .regularExpression).trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !cleaned.isEmpty && cleaned.count >= 2 && cleaned.count < 30 && cleaned != "豆瓣" {
+                                        return cleaned
+                    }
+                }
+            }
+        }
+        
         return nil
     }
 
@@ -402,7 +701,11 @@ final class DoubanParser: ContentParser, @unchecked Sendable {
 
     private func extractDirector(_ html: String) -> String? {
         let patterns = [
+            // 新版豆瓣: <span class="info-item-key">导演:</span> <span class="info-item-val">李安</span>
+            #"<span[^>]*class="info-item-key"[^>]*>\s*导演\s*:?</span>\s*<span[^>]*class="info-item-val"[^>]*>([^<]+)</span>"#,
+            // 旧版豆瓣
             #"<span class="pl">导演</span>.*?<a[^>]*>([^<]+)</a>"#,
+            #"<span[^>]*>导演\s*:</span>\s*<span[^>]*>([^<]+)</span>"#,
             #"导演.*?<a[^>]*>([^<]+)</a>"#
         ]
         for pattern in patterns {
@@ -417,7 +720,11 @@ final class DoubanParser: ContentParser, @unchecked Sendable {
 
     private func extractAuthor(_ html: String) -> String? {
         let patterns = [
+            // 新版豆瓣: <span class="info-item-key">作者:</span> <span class="info-item-val">余华</span>
+            #"<span[^>]*class="info-item-key"[^>]*>\s*作者\s*:?</span>\s*<span[^>]*class="info-item-val"[^>]*>([^<]+)</span>"#,
+            // 旧版豆瓣
             #"<span class="pl">作者</span>.*?<a[^>]*>([^<]+)</a>"#,
+            #"<span[^>]*>作者\s*:</span>\s*<span[^>]*>([^<]+)</span>"#,
             #"作者.*?<a[^>]*>([^<]+)</a>"#
         ]
         for pattern in patterns {
@@ -428,6 +735,49 @@ final class DoubanParser: ContentParser, @unchecked Sendable {
             }
         }
         return nil
+    }
+
+
+    // MARK: - Debug Helper
+
+    private func debugSearchAuthorPatterns(in html: String) {
+        // 搜索所有包含 "作者" 或 "导演" 的片段
+        let keywords = ["作者", "导演", "编剧", "主演", "author", "director"]
+        for keyword in keywords {
+            if let range = html.range(of: keyword) {
+                // 安全提取上下文片段
+                let lowerOffset = max(0, html.distance(from: html.startIndex, to: range.lowerBound) - 100)
+                let upperOffset = min(html.count, html.distance(from: html.startIndex, to: range.upperBound) + 200)
+                let startIndex = html.index(html.startIndex, offsetBy: lowerOffset)
+                let endIndex = html.index(html.startIndex, offsetBy: upperOffset)
+                let snippet = String(html[startIndex..<endIndex])
+                    .replacingOccurrences(of: "\n", with: " ")
+                    .replacingOccurrences(of: "\r", with: " ")
+                logger.info("[\(keyword)] 上下文片段: ...\(snippet, privacy: .public)...")
+            } else {
+                logger.info("[\(keyword)] 在 HTML 中未找到")
+            }
+        }
+
+        // 搜索 og:video:director meta 标签
+        let directorPatterns = [
+            "og:video:director",
+            "itemprop=.director",
+            "class=.pl.>导演",
+            "class=.pl.>作者",
+        ]
+        for pattern in directorPatterns {
+            if html.contains(pattern) {
+                logger.info("找到模式: \(pattern, privacy: .public)")
+            } else {
+                logger.info("未找到模式: \(pattern, privacy: .public)")
+            }
+        }
+
+        // 提取前 3000 字符看结构
+        let sampleSize = min(3000, html.count)
+        let sample = String(html.prefix(sampleSize))
+        logger.info("HTML 前 3000 字符: \(sample, privacy: .public)")
     }
 
     // MARK: - URL Conversion
@@ -453,6 +803,58 @@ final class DoubanParser: ContentParser, @unchecked Sendable {
     private func isSubjectURL(_ url: URL) -> Bool { url.path.contains("/subject/") }
     private func isReviewURL(_ url: URL) -> Bool { url.path.contains("/review/") }
 
+    /// 从影评页面 HTML 的 JSON-LD 中提取电影海报 URL
+    private func extractMoviePosterFromReviewHTML(_ html: String) -> String? {
+        guard let scriptRegex = try? NSRegularExpression(pattern: #"<script\s+type="application/ld\+json">(.*?)</script>"#, options: .dotMatchesLineSeparators) else { return nil }
+        let matches = scriptRegex.matches(in: html, range: NSRange(html.startIndex..., in: html))
+        
+        for match in matches {
+            guard let range = Range(match.range(at: 1), in: html) else { continue }
+            let jsonStr = String(html[range]).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let jsonData = jsonStr.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else { continue }
+            
+            // itemReviewed.image 就是电影海报
+            if let itemReviewed = json["itemReviewed"] as? [String: Any],
+               let imageURL = itemReviewed["image"] as? String,
+               !imageURL.isEmpty {
+                return imageURL
+            }
+        }
+        return nil
+    }
+    
+    /// 从影评页面 HTML 中提取影片 subject ID
+    private func extractSubjectIDFromReviewHTML(_ html: String) -> String? {
+        // 策略1: 从 JSON-LD 结构化数据的 itemReviewed.url 提取
+        if let scriptRegex = try? NSRegularExpression(pattern: #"<script\s+type="application/ld\+json">(.*?)</script>"#, options: .dotMatchesLineSeparators) {
+            let matches = scriptRegex.matches(in: html, range: NSRange(html.startIndex..., in: html))
+            for match in matches {
+                guard let range = Range(match.range(at: 1), in: html) else { continue }
+                let jsonStr = String(html[range]).trimmingCharacters(in: .whitespacesAndNewlines)
+                guard let jsonData = jsonStr.data(using: .utf8),
+                      let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else { continue }
+                if let itemReviewed = json["itemReviewed"] as? [String: Any],
+                   let itemURL = itemReviewed["url"] as? String {
+                    // URL 格式: "/subject/1301168/" 或 "https://movie.douban.com/subject/1301168/"
+                    if let match = itemURL.range(of: #"/subject/(\d+)"#, options: .regularExpression) {
+                        let matched = String(itemURL[match])
+                        let digits = matched.filter { $0.isNumber }
+                        if !digits.isEmpty { return digits }
+                    }
+                }
+            }
+        }
+        
+        // 策略2: 从页面链接中找 /subject/ID 格式
+        let linkPattern = #"douban\.com/subject/(\d+)"#
+        if let match = extractFirst(html, pattern: linkPattern) {
+            return match
+        }
+        
+        return nil
+    }
+    
     private func extractSubjectID(from url: URL) -> String? {
         URLNormalizer.extractDoubanID(url.absoluteString)
     }
