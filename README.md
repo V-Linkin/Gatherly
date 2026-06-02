@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="https://github.com/V-Linkin/Archiver/releases/latest">
-    <img src="https://img.shields.io/github/v/release/V-Linkin/Archiver?style=flat-square&label=最新版本" alt="Release">
+    <img src="https://img.shields.io/badge/版本-1.1.5-blue?style=flat-square" alt="Release">
   </a>
   <img src="https://img.shields.io/badge/macOS-14.0+-blue?style=flat-square" alt="macOS">
   <img src="https://img.shields.io/badge/Swift-6.0-orange?style=flat-square" alt="Swift">
@@ -28,7 +28,7 @@
 
 复制任意链接，粘贴即可保存。支持含分享文案的混合文本，自动提取 URL 并识别平台。
 
-**支持平台：** 抖音 · 小红书 · 酷安 · B站 · GitHub · YouTube · X(Twitter) · 微博 · 知乎 · 豆瓣
+**支持平台：** 抖音（图文+视频） · 小红书 · 酷安 · B站 · GitHub · YouTube · X(Twitter) · 微博 · 知乎 · 豆瓣
 
 ### 🖼️ 内容归档
 
