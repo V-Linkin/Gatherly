@@ -63,7 +63,7 @@ docs/                   产品规格 + 设计文档
 - **媒体另存为**: `MediaExporter` 工具类负责命名生成和文件导出，支持右键单个导出和工具栏批量导出。单个导出命名：`{平台名}_{文件夹}_{作者}_{序号}_{日期}.{扩展名}`，无文件夹时跳过该段。批量导出时自动创建子文件夹 `{自定义平台名}_{作者}_{日期}`，媒体文件放入其中。`ExportPickerSheet` 用于批量导出时的媒体类型选择（媒体区域/正文图片/全部）。
 - **图片复制**: 右键菜单支持复制图片到系统剪贴板（`NSPasteboard.writeObjects`），媒体区域和正文图片均支持。
 - **微博 AJAX API**: 微博移动页面和桌面页面均有严格反爬验证（Sina Visitor System），WKWebView 无法通过。`WeiboParser` 优先使用 `m.weibo.cn/statuses/show?id=` AJAX 接口（需 `X-Requested-With: XMLHttpRequest` 请求头），直接返回 JSON 数据，包含正文、作者、图片列表。兜底使用 HTML `render_data` 解析。
-- **小红书解析**: `XiaohongshuParser` 优先使用 `URLSession`（移动端 User-Agent）直接获取 HTML 并解析 `__INITIAL_STATE__` 数据，支持视频下载（`note.video.media.stream`，h264 优先）。图片去水印：将 `sns-webpic` CDN URL 转换为 `sns-na-i1.xhscdn.com` 无水印格式。封面从 `normalNotePreloadData` 获取，与首图按 `fileId` 去重。登录重定向时降级 WKWebView（`JSWebLoader`）提取 `#pageData`。
+- **小红书解析**: `XiaohongshuParser` 优先使用 `URLSession`（移动端 User-Agent）直接获取 HTML 并解析 `__INITIAL_STATE__` 数据，支持视频下载（`note.video.media.stream`，h264 优先）。图片去水印：直接使用 image 对象的 `fileId` 字段构造 `sns-na-i1.xhscdn.com` 无水印 URL（`fileId` 可能含斜杠前缀如 `notes_uhdr/xxx`，不能从 URL 路径截取）。封面从 `normalNotePreloadData` 获取，与首图按 `fileId` 去重。HTTP 失败时降级 WKWebView（`JSWebLoader`），优先从 `__INITIAL_STATE__` 提取（与 HTTP 路径对齐），兜底从 DOM 提取可见图片。
 - **酷安镜像站解析**: `CoolapkParser` 优先使用 `coolapk1s.com` 镜像站绕过酷安反爬（原站返回扫码挑战页）。镜像站使用 Next.js SSR，`__NEXT_DATA__` JSON 包含完整 feed 数据（标题/正文/作者/图片列表）。图片通过 `image.coolapk1s.com/proxy?url=` 代理访问绕过防盗链。降级顺序：镜像站 -> 原站 HTTP -> WKWebView。
 
 - **X 解析器封面去重**: `XParser` 封面逻辑：视频推文优先用 `thumbnail_url` 作为封面，图片推文用首图（首图与封面相同时从 `imageURLs` 移除避免重复），纯文字兜底用头像。
@@ -81,6 +81,9 @@ docs/                   产品规格 + 设计文档
 | `docs/PRODUCT_SPEC.md` | 完整产品规格 |
 | `docs/superpowers/specs/` | 功能设计文档 |
 | `docs/superpowers/plans/` | 实现计划 |
+
+- **使用帮助**: 设置页「关于」区块包含「使用帮助」和「GitHub」链接（同一行）。点击使用帮助弹出 `HelpView` sheet，内容分 6 个可展开/收缩的区块（快速入门、支持平台、内容整理、媒体导出、备份还原、常见问题），每个条目默认折叠，点击展开。
+- **自动更新**: `UpdateChecker` 通过 GitHub API 检查新版本，下载 DMG 到临时目录，挂载后用 `install_update.sh`（Resources/）脚本 ditto 替换 `/Applications` 中的旧版本并重启。app 不在 `/Applications` 时回退为打开 DMG 让用户手动安装。设置页显示下载进度条，完成后弹窗确认安装。启动时检查是否存在已下载但未安装的 DMG。`UpdateStatus` 枚举包含 `.downloading(progress:)` 和 `.downloaded(dmgPath:version:)` 两个额外状态。
 
 ## 已知问题（待修复）
 

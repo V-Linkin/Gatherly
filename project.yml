@@ -32,6 +32,7 @@ targets:
       - path: Services
       - path: Utilities
       - path: Views
+      - path: Resources
       - path: Assets.xcassets
       - path: Info.plist
     settings:

@@ -16,6 +16,10 @@ struct SettingsView: View {
     @State private var restoreMetadata: BackupMetadata?
     @State private var selectedBackupURL: URL?
     @State private var selectedBrowserID: String = BrowserDetector.shared.getSelectedBrowserBundleIdentifier()
+    @State private var showInstallConfirm = false
+    @State private var showHelp = false
+    @State private var pendingInstallDmgPath: URL?
+    @State private var pendingInstallVersion: String = "" 
     
     var body: some View {
         Form {
@@ -27,8 +31,18 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .navigationTitle("设置")
-        .onAppear { loadStats() }
+        .onAppear {
+            loadStats()
+            updateChecker.checkForDownloadedUpdate()
+            if case .downloaded(let path, let ver) = updateChecker.status {
+                pendingInstallDmgPath = path
+                pendingInstallVersion = ver
+            }
+        }
         .onDisappear { updateChecker.status = .idle; updateChecker.isChecking = false }
+        .sheet(isPresented: $showHelp) {
+            HelpView()
+        }
         .alert("恢复默认目录", isPresented: $showResetConfirm) {
             Button("取消", role: .cancel) {}
             Button("恢复") {
@@ -59,7 +73,7 @@ struct SettingsView: View {
             HStack { Text("总内容数"); Spacer(); Text("\(totalItems) 条").foregroundStyle(.secondary) }
             HStack { Text("数据库大小"); Spacer(); Text(dbSize).foregroundStyle(.secondary) }
             VStack(alignment: .leading, spacing: 8) {
-                HStack {
+                HStack(spacing: 8) {
                     Text("数据目录")
                     Spacer()
                     if DataDirectory.isCustom { Text("自定义").font(.caption).foregroundStyle(.orange) }
@@ -106,7 +120,7 @@ struct SettingsView: View {
                         Text("备份信息").font(.caption).fontWeight(.medium)
                         Text("版本: \(meta.version)").font(.caption2).foregroundStyle(.secondary)
                         Text("时间: \(meta.backupDate)").font(.caption2).foregroundStyle(.secondary)
-                        HStack {
+                        HStack(spacing: 8) {
                             Label("数据库", systemImage: meta.hasDatabase ? "checkmark.circle.fill" : "xmark.circle").font(.caption2).foregroundStyle(meta.hasDatabase ? .green : .red)
                             Label("媒体", systemImage: meta.hasMedia ? "checkmark.circle.fill" : "xmark.circle").font(.caption2).foregroundStyle(meta.hasMedia ? .green : .red)
                             Label("Logo", systemImage: meta.hasLogos ? "checkmark.circle.fill" : "xmark.circle").font(.caption2).foregroundStyle(meta.hasLogos ? .green : .red)
@@ -128,7 +142,7 @@ struct SettingsView: View {
                     Picker("", selection: $selectedBrowserID) {
                         Text("系统默认").tag("")
                         ForEach(BrowserDetector.shared.getAvailableBrowsers()) { browser in
-                            HStack {
+                            HStack(spacing: 8) {
                                 if let icon = browser.icon {
                                     Image(nsImage: icon)
                                         .resizable()
@@ -158,15 +172,33 @@ struct SettingsView: View {
             HStack { Text("应用名称"); Spacer(); Text("拾屿 (Archiver)").foregroundStyle(.secondary) }
             HStack { Text("作者"); Spacer(); Text("LinKin").foregroundStyle(.secondary) }
             
-            HStack {
+            HStack(spacing: 8) {
                 Label("检查更新", systemImage: "arrow.triangle.2.circlepath")
                 Spacer()
                 switch updateChecker.status {
                     case .checking:
                         ProgressView().scaleEffect(0.6)
                     case .updateAvailable(let version, _):
-                        Button { resetUpdateStatus() } label: {
-                            Label("v\(version) · 前往下载", systemImage: "arrow.clockwise")
+                        Button { startDownload(version: version) } label: {
+                            Label("v\(version) · 下载更新", systemImage: "arrow.clockwise")
+                        }
+                    case .downloading(let progress):
+                        VStack(alignment: .trailing, spacing: 4) {
+                            ProgressView(value: progress)
+                                .frame(width: 120)
+                            Text("\(Int(progress * 100))%")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    case .downloaded(_, let version):
+                        HStack(spacing: 8) {
+                            Button { showInstallConfirm = true } label: {
+                                Label("安装", systemImage: "arrow.down.circle")
+                            }
+                            Button { resetUpdateStatus() } label: {
+                                Text("稍后")
+                            }
+                            .foregroundStyle(.secondary)
                         }
                     case .upToDate:
                         Button { resetUpdateStatus() } label: {
@@ -184,13 +216,22 @@ struct SettingsView: View {
                 }
             }
             
-            Link(destination: URL(string: "https://github.com/V-Linkin/Archiver")!) {
-                HStack {
-                    Label("GitHub 项目地址", systemImage: "link")
-                    Spacer()
-                    Image(systemName: "arrow.up.right.square").foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                Button {
+                    showHelp = true
+                } label: {
+                    Label("使用帮助", systemImage: "questionmark.circle")
+                }
+                Link(destination: URL(string: "https://github.com/V-Linkin/Archiver")!) {
+                    Label("GitHub", systemImage: "link")
                 }
             }
+        }
+        .alert("安装新版本", isPresented: $showInstallConfirm) {
+            Button("安装") { performInstall() }
+            Button("取消", role: .cancel) { }
+        } message: {
+            Text("新版本 v\(pendingInstallVersion) 将替换当前版本并重启应用。")
         }
     }
     
@@ -217,6 +258,25 @@ struct SettingsView: View {
     
     private func startCheckForUpdates() {
         Task { await updateChecker.checkForUpdates() }
+    }
+    
+    private func startDownload(version: String) {
+        guard let dmgURL = updateChecker.dmgDownloadURL(version: version) else {
+            updateChecker.status = .error("下载地址无效")
+            return
+        }
+        Task {
+            await updateChecker.downloadUpdate(version: version, dmgURL: dmgURL)
+            if case .downloaded(let path, let ver) = updateChecker.status {
+                pendingInstallDmgPath = path
+                pendingInstallVersion = ver
+            }
+        }
+    }
+    
+    private func performInstall() {
+        guard let dmgPath = pendingInstallDmgPath else { return }
+        updateChecker.installUpdate(dmgPath: dmgPath)
     }
     
     private func performBackup() {

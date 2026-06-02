@@ -33,20 +33,18 @@ final class XiaohongshuParser: ContentParser, @unchecked Sendable {
         }
         
         // 2. HTTP 失败，使用 WKWebView 降级（未登录状态）
-        return try await parseViaWebView(url: url)
+        let result = try await parseViaWebView(url: url)
+        return result
     }
     
     // MARK: - HTTP 模式（登录状态，快速）
     
     private func parseViaHTTP(url: URL) async throws -> ParsedContent? {
-        NSLog("[DEBUG:XHS] parseViaHTTP URL: \(url)")
         let (data, response) = try await session.data(from: url)
         
         guard let httpResponse = response as? HTTPURLResponse else {
-            NSLog("[DEBUG:XHS] no HTTP response")
             return nil
         }
-        NSLog("[DEBUG:XHS] HTTP status: \(httpResponse.statusCode)")
         
         guard httpResponse.statusCode == 200 else {
             return nil
@@ -57,7 +55,6 @@ final class XiaohongshuParser: ContentParser, @unchecked Sendable {
         }
         
         let hasSSR = html.contains("__INITIAL_STATE__=")
-        NSLog("[DEBUG:XHS] html len=\(html.count) hasSSR=\(hasSSR)")
         
         guard hasSSR else {
             return nil
@@ -153,7 +150,6 @@ final class XiaohongshuParser: ContentParser, @unchecked Sendable {
             note = noteDetail
         }
         
-        NSLog("[DEBUG:XHS] SSR note found: \(note?["title"] ?? "nil")")
         guard let note = note else { return nil }
         
         let title = note["title"] as? String
@@ -168,29 +164,18 @@ final class XiaohongshuParser: ContentParser, @unchecked Sendable {
         // 提取所有图片 - 转换为无水印 URL
         if let imageList = note["imageList"] as? [[String: Any]] {
             for img in imageList {
-                var rawUrl: String?
-                if let url = img["urlDefault"] as? String {
-                    rawUrl = url
+                // 优先用 fileId 构造无水印 URL（fileId 可能含斜杠如 notes_uhdr/xxx）
+                if let fileId = img["fileId"] as? String, !fileId.isEmpty {
+                    imageURLs.append("http://sns-na-i1.xhscdn.com/\(fileId)?imageView2/2/w/1080/format/jpg")
+                } else if let url = img["urlDefault"] as? String {
+                    imageURLs.append(url)
                 } else if let url = img["url"] as? String {
-                    rawUrl = url
-                }
-                if let url = rawUrl {
-                    // 将水印 URL 转换为无水印格式
-                    if url.contains("sns-webpic") && url.contains("!") {
-                        // 提取 fileId: URL 最后一段在 ! 之前
-                        // 例: .../1040g2sg3xxx!h5_1080jpg -> fileId = 1040g2sg3xxx
-                        let baseUrl = url.components(separatedBy: "!").first ?? url
-                        let pathParts = baseUrl.components(separatedBy: "/")
-                        if let fileId = pathParts.last, !fileId.isEmpty {
-                            imageURLs.append("http://sns-na-i1.xhscdn.com/\(fileId)?imageView2/2/w/1080/format/jpg")
-                        } else {
-                            imageURLs.append(url)
-                        }
-                    } else {
-                        imageURLs.append(url)
-                    }
+                    imageURLs.append(url)
                 }
             }
+            for (idx, url) in imageURLs.enumerated() {
+            }
+        } else {
         }
         
         // 提取封面 - 优先用 normalNotePreloadData（无水印），兜底用 imageList 第一张
@@ -229,7 +214,6 @@ final class XiaohongshuParser: ContentParser, @unchecked Sendable {
             }
         }
         
-        NSLog("[DEBUG:XHS] FINAL title=\(title ?? "nil") author=\(author ?? "nil") video=\(videoURL != nil ? "yes" : "nil") images=\(imageURLs.count)")
         guard title != nil || desc != nil else { return nil }
         
         return ParsedContent(

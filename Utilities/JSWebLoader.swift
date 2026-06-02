@@ -206,6 +206,64 @@ final class JSWebLoader: NSObject, WKNavigationDelegate {
                         }
                     }
                     
+                    // 1b. 尝试 SSR 数据提取（__INITIAL_STATE__，与 HTTP 路径 extractFromSSRData 对齐）
+                    if (xhsResult.images.length === 0) {
+                        try {
+                            var _allScripts = document.querySelectorAll('script');
+                            for (var _si2 = 0; _si2 < _allScripts.length; _si2++) {
+                                var _scriptText = _allScripts[_si2].textContent || '';
+                                var _ssrMarker = '__INITIAL_STATE__=';
+                                var _ssrIdx = _scriptText.indexOf(_ssrMarker);
+                                if (_ssrIdx === -1) continue;
+                                var _ssrJson = _scriptText.substring(_ssrIdx + _ssrMarker.length);
+                                // textContent 不含 </script> 标签，无需截断
+                                _ssrJson = _ssrJson.replace(/undefined/g, 'null');
+                                var _ssrData = JSON.parse(_ssrJson);
+                                xhsResult.debug += ' | initialState:found';
+                                var _ssrNote = null;
+                                if (_ssrData.note && _ssrData.note.noteDetailMap) {
+                                    var _dm = _ssrData.note.noteDetailMap;
+                                    var _dk = Object.keys(_dm)[0];
+                                    if (_dk && _dm[_dk] && _dm[_dk].note) _ssrNote = _dm[_dk].note;
+                                }
+                                if (!_ssrNote && _ssrData.noteData && _ssrData.noteData.data && _ssrData.noteData.data.noteData) {
+                                    _ssrNote = _ssrData.noteData.data.noteData;
+                                }
+                                if (_ssrNote) {
+                                    if (_ssrNote.title) xhsResult.title = _ssrNote.title;
+                                    if (_ssrNote.desc) xhsResult.text = _ssrNote.desc;
+                                    var _ssrUser = _ssrNote.user;
+                                    if (_ssrUser) xhsResult.author = _ssrUser.nickName || _ssrUser.nickname || '';
+                                    if (_ssrNote.imageList && _ssrNote.imageList.length > 0) {
+                                        xhsResult.images = _ssrNote.imageList.map(function(img) {
+                                            if (img.fileId) return 'http://sns-na-i1.xhscdn.com/' + img.fileId + '?imageView2/2/w/1080/format/jpg';
+                                            return img.urlDefault || img.url || '';
+                                        }).filter(function(u) { return u && u.indexOf('http') === 0; });
+                                    }
+                                    var _np = _ssrData.noteData && _ssrData.noteData.normalNotePreloadData;
+                                    if (_np && _np.imagesList && _np.imagesList.length > 0) {
+                                        var _fi = _np.imagesList[0];
+                                        xhsResult.cover = _fi.urlSizeLarge || _fi.url || '';
+                                    }
+                                    if (!xhsResult.cover && xhsResult.images.length > 0) xhsResult.cover = xhsResult.images[0];
+                                    if (xhsResult.cover && xhsResult.images.length > 0 && xhsResult.images[0] === xhsResult.cover) xhsResult.images.shift();
+                                    if (_ssrNote.video && _ssrNote.video.media && _ssrNote.video.media.stream) {
+                                        var _stream = _ssrNote.video.media.stream;
+                                        var _codecs = (_stream.h264 || []).concat(_stream.h265 || []).concat(_stream.av1 || []);
+                                        if (_codecs.length > 0) {
+                                            _codecs.sort(function(a, b) { return (b.width || 0) - (a.width || 0); });
+                                            xhsResult.video = _codecs[0].masterUrl || '';
+                                        }
+                                    }
+                                    xhsResult.debug += ' | ssrImages:' + xhsResult.images.length;
+                                }
+                                break;
+                            }
+                        } catch(_e) {
+                            xhsResult.debug += ' | ssrINITError:' + _e.toString();
+                        }
+                    }
+                    
                     // 2. DOM 提取备用 - 扩展选择器
                     if (!xhsResult.text) {
                         var _xhsSelectors = ['#detail-desc', '.note-text', '.note-content', '.content', '[class*="desc"]', '[class*="detail"]', '#detail-desc .note-text', '.note-scroller'];
@@ -243,16 +301,18 @@ final class JSWebLoader: NSObject, WKNavigationDelegate {
                         }
                     }
                     
-                    // 3. DOM 兜底提取图片
-                    var _xhsImageEls = document.querySelectorAll('.image-container img, [class*="image"] img, .swiper-slide img, .note-image img, [class*="carousel"] img, [class*="slider"] img, [class*="gallery"] img');
-                    xhsResult.images = Array.from(_xhsImageEls).map(function(img) { return img.src || img.getAttribute('data-src') || ''; }).filter(function(src) { return src && src.indexOf('http') === 0; });
+                    // 3. DOM 兜底提取图片（仅在 SSR 未提取到图片时作为 fallback）
+                    if (xhsResult.images.length === 0) {
+                        var _xhsImageEls = document.querySelectorAll('.image-container img, [class*="image"] img, .swiper-slide img, .note-image img, [class*="carousel"] img, [class*="slider"] img, [class*="gallery"] img');
+                        xhsResult.images = Array.from(_xhsImageEls).map(function(img) { return img.src || img.getAttribute('data-src') || ''; }).filter(function(src) { return src && src.indexOf('http') === 0; });
+                    }
                     if (xhsResult.images.length === 0) {
                         var _xhsOgImage = document.querySelector('meta[property="og:image"]');
                         if (_xhsOgImage && _xhsOgImage.content) {
                             xhsResult.images = [_xhsOgImage.content];
                         }
                     }
-                    xhsResult.cover = xhsResult.images.length > 0 ? xhsResult.images[0] : '';
+                    if (!xhsResult.cover) xhsResult.cover = xhsResult.images.length > 0 ? xhsResult.images[0] : '';
                     // 兜底封面
                     if (!xhsResult.cover) {
                         var _xhsOgCover = document.querySelector('meta[property="og:image"]');
