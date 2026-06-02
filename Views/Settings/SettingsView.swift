@@ -37,6 +37,7 @@ struct SettingsView: View {
             if case .downloaded(let path, let ver) = updateChecker.status {
                 pendingInstallDmgPath = path
                 pendingInstallVersion = ver
+                showInstallConfirm = true
             }
         }
         .onDisappear { updateChecker.status = .idle; updateChecker.isChecking = false }

@@ -124,21 +124,26 @@ final class UpdateChecker: NSObject {
         do {
             try process.run()
             
-            // 等待脚本完成
-            process.waitUntilExit()
-            
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            let output = String(data: data, encoding: .utf8) ?? ""
-            logger.info("安装脚本输出: \(output, privacy: .public)")
-            
-            if process.terminationStatus != 0 {
-                status = .error("安装脚本执行失败: \(output)")
-                return
-            }
-            
-            // 脚本成功后退出 app
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                NSApplication.shared.terminate(nil)
+            // 在后台线程等待脚本完成，不阻塞主线程
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                process.waitUntilExit()
+                
+                let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                let output = String(data: data, encoding: .utf8) ?? ""
+                
+                DispatchQueue.main.async {
+                    self?.logger.info("安装脚本输出: \(output, privacy: .public)")
+                    
+                    if process.terminationStatus != 0 {
+                        self?.status = .error("安装脚本执行失败: \(output)")
+                        return
+                    }
+                    
+                    // 脚本成功后退出 app
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        NSApplication.shared.terminate(nil)
+                    }
+                }
             }
         } catch {
             logger.error("启动安装脚本失败: \(error.localizedDescription, privacy: .public)")
