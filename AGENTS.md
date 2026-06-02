@@ -68,7 +68,7 @@ docs/                   产品规格 + 设计文档
 - **酷安镜像站解析**: `CoolapkParser` 优先使用 `coolapk1s.com` 镜像站绕过酷安反爬（原站返回扫码挑战页）。镜像站使用 Next.js SSR，`__NEXT_DATA__` JSON 包含完整 feed 数据（标题/正文/作者/图片列表）。图片通过 `image.coolapk1s.com/proxy?url=` 代理访问绕过防盗链。降级顺序：镜像站 -> 原站 HTTP -> WKWebView。
 
 - **X 解析器封面去重**: `XParser` 封面逻辑：视频推文优先用 `thumbnail_url` 作为封面，图片推文用首图（首图与封面相同时从 `imageURLs` 移除避免重复），纯文字兜底用头像。
-- **独立窗口查看器**: `ViewerWindowManager`（Utilities/ViewerWindowManager.swift）单例管理图片/视频查看器 NSWindow。图片点击正文或媒体区域打开 `ImageViewerView`（白色背景，保留缩放/拖拽/导航/键盘快捷键），视频点击打开 `VideoViewerView`（AVPlayerView 自动播放）。窗口无标题栏但保留交通灯，支持多窗口同时打开方便图片对比，ESC 关闭窗口（事件被消费不传递到主 app）。视频窗口按原始宽高比自动调整大小（最大 720×540）。窗口尺寸通过 UserDefaults 持久化，最小 400×300。媒体轮播中视频显示 `VideoThumbnailView`（封面图 + 播放按钮），详情页内联 `VideoPlayerView`。
+- **独立窗口查看器**: `ViewerWindowManager`（Utilities/ViewerWindowManager.swift）单例管理图片/视频查看器 NSWindow。图片点击正文或媒体区域打开 `ImageViewerView`（白色背景，保留缩放/拖拽/导航/键盘快捷键），视频点击打开 `VideoViewerView`（AVPlayerView 自动播放）。窗口无标题栏但保留交通灯，支持多窗口同时打开方便图片对比，ESC 关闭窗口（事件被消费不传递到主 app）。视频窗口按原始宽高比自动调整大小（最大 720×540）。窗口尺寸通过 UserDefaults 持久化，最小 400×300。**视频播放器生命周期**: `ViewerWindowManager` 创建窗口时持有 `AVPlayer` 引用（字典 `players[windowID]`），窗口关闭时直接 `pause()` + `replaceCurrentItem(with: nil)`，确保音频立即停止。媒体轮播中视频显示 `VideoThumbnailView`（封面图 + 播放按钮），详情页内联 `VideoPlayerView`。
 - **Sheet 状态传递**: `.sheet(isPresented:)` 闭包中无法可靠读取同一 action 设置的 `@State` 变量（SwiftUI 重新渲染时状态丢失，sheet 内容为空）。需要传递 item ID 时，改用 `.sheet(item:)` 并定义 `Identifiable` 包装结构。多选移动使用 `showMoveToPlatform` + `isPresented` binding（多选路径不依赖单 item 状态）。
 
 ## 支持平台

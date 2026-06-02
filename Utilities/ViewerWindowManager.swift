@@ -1,5 +1,6 @@
 import AppKit
 import AVFoundation
+import AVKit
 import SwiftUI
 
 @MainActor
@@ -7,6 +8,7 @@ final class ViewerWindowManager {
     static let shared = ViewerWindowManager()
     
     private var windows: [NSWindow] = []
+    private var players: [ObjectIdentifier: AVPlayer] = [:]
     private let userDefaultsKey = "viewerWindowSize"
     private let defaultSize = NSSize(width: 800, height: 600)
     private let minSize = NSSize(width: 400, height: 300)
@@ -32,14 +34,20 @@ final class ViewerWindowManager {
     // MARK: - Video Viewer
     
     func openVideoViewer(url: URL) {
-        let content = VideoViewerView(url: url)
+        let player = AVPlayer(url: url)
+        
+        let content = VideoViewerView(player: player)
             .frame(minWidth: minSize.width, minHeight: minSize.height)
         
-        // Detect video aspect ratio for initial window size
         let windowSize = videoWindowSize(url: url)
         let window = createWindow(size: windowSize, content: content)
         windows.append(window)
         window.makeKeyAndOrderFront(self)
+        
+        // Store player reference keyed by window
+        let windowID = ObjectIdentifier(window)
+        players[windowID] = player
+        player.play()
     }
     
     private func videoWindowSize(url: URL) -> NSSize {
@@ -52,7 +60,7 @@ final class ViewerWindowManager {
         let rotatedWidth = abs(transform.a) * size.width + abs(transform.c) * size.height
         let rotatedHeight = abs(transform.b) * size.width + abs(transform.d) * size.height
         
-        guard rotatedWidth > 0, rotatedHeight > 0 else { return savedWindowSize() }
+        guard rotatedWidth > 0 && rotatedHeight > 0 else { return savedWindowSize() }
         
         let maxWidth: CGFloat = 720
         let maxHeight: CGFloat = 540
@@ -66,6 +74,7 @@ final class ViewerWindowManager {
     // MARK: - Close All
     
     func closeAll() {
+        stopAllPlayers()
         for window in windows {
             window.close()
         }
@@ -90,18 +99,38 @@ final class ViewerWindowManager {
         window.isReleasedWhenClosed = false
         window.center()
         
+        let windowID = ObjectIdentifier(window)
+        
         NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification,
             object: window,
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor in
+                self?.stopPlayer(for: windowID)
                 self?.saveWindowSize(window.frame.size)
                 self?.windows.removeAll { $0 === window }
             }
         }
         
         return window
+    }
+    
+    // MARK: - Player Management
+    
+    private func stopPlayer(for windowID: ObjectIdentifier) {
+        guard let player = players[windowID] else { return }
+        player.pause()
+        player.replaceCurrentItem(with: nil)
+        players.removeValue(forKey: windowID)
+    }
+    
+    private func stopAllPlayers() {
+        for (_, player) in players {
+            player.pause()
+            player.replaceCurrentItem(with: nil)
+        }
+        players.removeAll()
     }
     
     // MARK: - Size Persistence
