@@ -38,6 +38,11 @@ final class ViewerWindowManager {
         
         let content = VideoViewerView(player: player)
             .frame(minWidth: minSize.width, minHeight: minSize.height)
+            .onKeyDown { event in
+                if event.keyCode == 53 {
+                    NSApp.keyWindow?.close()
+                }
+            }
         
         let windowSize = videoWindowSize(url: url)
         let window = createWindow(size: windowSize, content: content)

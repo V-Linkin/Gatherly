@@ -93,6 +93,7 @@ final class UpdateChecker: NSObject {
                 try FileManager.default.removeItem(at: dmgPath)
             }
             try FileManager.default.moveItem(at: tempURL, to: dmgPath)
+            UserDefaults.standard.set(version, forKey: "pendingUpdateVersion")
             status = .downloaded(dmgPath: dmgPath, version: version)
         } catch {
             logger.error("移动 DMG 失败: \(error.localizedDescription, privacy: .public)")
@@ -108,14 +109,35 @@ final class UpdateChecker: NSObject {
             return
         }
         
+        logger.info("安装脚本路径: \(scriptPath, privacy: .public)")
+        logger.info("DMG 路径: \(dmgPath.path, privacy: .public)")
+        
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
         process.arguments = [scriptPath, dmgPath.path]
         
+        // 捕获脚本输出用于调试
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = pipe
+        
         do {
             try process.run()
-            // 给脚本一点时间启动，然后退出 app
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            
+            // 等待脚本完成
+            process.waitUntilExit()
+            
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            let output = String(data: data, encoding: .utf8) ?? ""
+            logger.info("安装脚本输出: \(output, privacy: .public)")
+            
+            if process.terminationStatus != 0 {
+                status = .error("安装脚本执行失败: \(output)")
+                return
+            }
+            
+            // 脚本成功后退出 app
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 NSApplication.shared.terminate(nil)
             }
         } catch {
@@ -129,7 +151,8 @@ final class UpdateChecker: NSObject {
     func checkForDownloadedUpdate() {
         let dmgPath = FileManager.default.temporaryDirectory.appendingPathComponent("Archiver_update.dmg")
         guard FileManager.default.fileExists(atPath: dmgPath.path) else { return }
-        status = .downloaded(dmgPath: dmgPath, version: "新版本")
+        let version = UserDefaults.standard.string(forKey: "pendingUpdateVersion") ?? "新版本"
+        status = .downloaded(dmgPath: dmgPath, version: version)
     }
     
     // MARK: - Release Page (fallback)
