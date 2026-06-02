@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="icon.png" width="128" alt="拾屿 Logo">
+</p>
+
 <h1 align="center">拾屿 Archiver</h1>
 
 <p align="center">跨平台的私人内容岛</p>
