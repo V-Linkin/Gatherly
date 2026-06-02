@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="icon.png" width="128" alt="拾屿 Logo">
+  <img src="https://raw.githubusercontent.com/V-Linkin/Archiver/main/icon.png" width="128" alt="拾屿 Logo">
 </p>
 
 <h1 align="center">拾屿 Archiver</h1>
