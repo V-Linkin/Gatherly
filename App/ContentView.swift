@@ -37,9 +37,6 @@ struct ContentView: View {
     @State private var coverImages: [NSImage] = []
     @State private var coverImageIndex: Int = 0
     @State private var showCoverViewer: Bool = false
-    @State private var bodyImages: [NSImage] = []
-    @State private var bodyImageIndex: Int = 0
-    @State private var showBodyViewer: Bool = false
     
     var body: some View {
         @Bindable var state = appState
@@ -93,15 +90,7 @@ struct ContentView: View {
                 .transition(.opacity)
                 .animation(.easeInOut(duration: 0.2), value: showCoverViewer)
             }
-            if showBodyViewer && !bodyImages.isEmpty {
-                ImageViewerView(
-                    images: bodyImages,
-                    currentIndex: $bodyImageIndex,
-                    isPresented: $showBodyViewer
-                )
-                .transition(.opacity)
-                .animation(.easeInOut(duration: 0.2), value: showBodyViewer)
-            }
+
         }
         .overlay(alignment: .top) {
             if appState.showToast, let message = appState.toastMessage {
@@ -194,9 +183,7 @@ struct ContentView: View {
                 coverImages: $coverImages,
                 coverImageIndex: $coverImageIndex,
                 showCoverViewer: $showCoverViewer,
-                bodyImages: $bodyImages,
-                bodyImageIndex: $bodyImageIndex,
-                showBodyViewer: $showBodyViewer
+
             )
         case .search:
             SearchResultsView(selectedNav: $selectedNav, previousNav: $previousNav)

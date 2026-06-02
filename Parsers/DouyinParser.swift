@@ -219,8 +219,11 @@ final class DouyinParser: ContentParser, @unchecked Sendable {
         if !isImageNote {
             if let video = detail["video"] as? [String: Any] {
                 if let playAddr = video["play_addr"] as? [String: Any] {
-                    if let urlList = playAddr["url_list"] as? [String] {
-                        videoURL = urlList.first
+                    if let urlList = playAddr["url_list"] as? [String],
+                       var url = urlList.first {
+                        // 去水印：/playwm/ → /play/
+                        url = url.replacingOccurrences(of: "/playwm/", with: "/play/")
+                        videoURL = url
                     }
                 }
             }
@@ -289,7 +292,8 @@ final class DouyinParser: ContentParser, @unchecked Sendable {
                let playAddr = video["playAddr"] as? [[String: Any]],
                let first = playAddr.first,
                let src = first["src"] as? String {
-                videoURL = src
+                // 去水印：/playwm/ → /play/
+                videoURL = src.replacingOccurrences(of: "/playwm/", with: "/play/")
             }
             
             if let cover = detail["video"] as? [String: Any],

@@ -12,18 +12,12 @@ struct ImageViewerView: View {
     var body: some View {
         GeometryReader { geo in
             ZStack {
-                Color.black.opacity(0.92).ignoresSafeArea()
-                    .onTapGesture {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            isPresented = false
-                        }
-                    }
+                Color.white.ignoresSafeArea()
                 
                 if !images.isEmpty {
                     currentImage(geo)
                     navigationButtons
                     pageInfo
-                    closeButton
                 }
             }
         }
@@ -39,6 +33,7 @@ struct ImageViewerView: View {
         .onChange(of: currentIndex) { _, _ in
             resetZoom()
         }
+        .frame(minWidth: 400, minHeight: 300)
     }
     
     // MARK: - Current Image
@@ -103,9 +98,9 @@ struct ImageViewerView: View {
                 } label: {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 24, weight: .medium))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(.primary)
                         .frame(width: 44, height: 44)
-                        .background(Color.white.opacity(0.15))
+                        .background(Color.black.opacity(0.08))
                         .clipShape(Circle())
                 }
                 .buttonStyle(.plain)
@@ -122,9 +117,9 @@ struct ImageViewerView: View {
                 } label: {
                     Image(systemName: "chevron.right")
                         .font(.system(size: 24, weight: .medium))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(.primary)
                         .frame(width: 44, height: 44)
-                        .background(Color.white.opacity(0.15))
+                        .background(Color.black.opacity(0.08))
                         .clipShape(Circle())
                 }
                 .buttonStyle(.plain)
@@ -143,10 +138,10 @@ struct ImageViewerView: View {
             if images.count > 1 {
                 Text("\(currentIndex + 1) / \(images.count)")
                     .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.8))
+                    .foregroundStyle(.primary.opacity(0.6))
                     .padding(.horizontal, 12)
                     .padding(.vertical, 6)
-                    .background(Color.white.opacity(0.15))
+                    .background(Color.black.opacity(0.08))
                     .clipShape(Capsule())
                     .padding(.bottom, 24)
             }
@@ -155,29 +150,7 @@ struct ImageViewerView: View {
     
     // MARK: - Close Button
     
-    private var closeButton: some View {
-        VStack {
-            HStack {
-                Spacer()
-                Button {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        isPresented = false
-                    }
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundStyle(.white)
-                        .frame(width: 32, height: 32)
-                        .background(Color.white.opacity(0.15))
-                        .clipShape(Circle())
-                }
-                .buttonStyle(.plain)
-                .padding(.trailing, 20)
-                .padding(.top, 20)
-            }
-            Spacer()
-        }
-    }
+
     
     // MARK: - Helpers
     
@@ -270,6 +243,7 @@ private class EventMonitorNSView: NSView {
         if window != nil {
             keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
                 self?.keyHandler?(event)
+                if event.keyCode == 53 { return nil }
                 return event
             }
             scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in

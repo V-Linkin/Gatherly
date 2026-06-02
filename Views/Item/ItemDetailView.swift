@@ -9,9 +9,6 @@ struct ItemDetailView: View {
     @Binding var coverImages: [NSImage]
     @Binding var coverImageIndex: Int
     @Binding var showCoverViewer: Bool
-    @Binding var bodyImages: [NSImage]
-    @Binding var bodyImageIndex: Int
-    @Binding var showBodyViewer: Bool
     @Environment(AppState.self) private var appState
     
     @State private var item: Item?
@@ -197,21 +194,13 @@ struct ItemDetailView: View {
                             if let path = asset.localPath {
                                 let url = DataDirectory.media.appendingPathComponent(path)
                                 if asset.type == .video {
-                                    VideoPlayerView(url: url)
+                                    VideoThumbnailView(url: url)
                                         .frame(width: 400, height: 280)
                                         .clipShape(RoundedRectangle(cornerRadius: 8))
+                                        .onTapGesture {
+                                            ViewerWindowManager.shared.openVideoViewer(url: url)
+                                        }
                                         .contextMenu {
-                                            Button {
-                                                if let url = URL(string: asset.remoteURL ?? ""), let nsImage = NSImage(contentsOf: DataDirectory.media.appendingPathComponent(asset.localPath ?? "")) {
-                                                    let pasteboard = NSPasteboard.general
-                                                    pasteboard.clearContents()
-                                                    pasteboard.writeObjects([nsImage])
-                                                    appState.showToast("已复制到剪贴板")
-                                                }
-                                            } label: {
-                                                Label("复制", systemImage: "doc.on.doc")
-                                            }
-                                            .disabled(asset.localPath == nil)
                                             Button {
                                                 let success = MediaExporter.exportSingle(asset: asset, item: item, from: appState)
                                                 if success {
@@ -316,7 +305,7 @@ struct ItemDetailView: View {
     private func openCoverViewer(from tappedIndex: Int) {
         var images: [NSImage] = []
         for asset in mediaAssets {
-            if let path = asset.localPath {
+            if asset.type == .image || asset.type == .cover, let path = asset.localPath {
                 let url = DataDirectory.media.appendingPathComponent(path)
                 if let nsImage = NSImage(contentsOf: url) {
                     images.append(nsImage)
@@ -324,9 +313,7 @@ struct ItemDetailView: View {
             }
         }
         guard !images.isEmpty else { return }
-        coverImages = images
-        coverImageIndex = tappedIndex
-        showCoverViewer = true
+        ViewerWindowManager.shared.openImageViewer(images: images, startIndex: tappedIndex)
     }
     
     private func metadataSection(_ item: Item) -> some View {
@@ -394,9 +381,7 @@ struct ItemDetailView: View {
         let urls = bodyImageURLs.isEmpty ? Self.extractImageURLs(from: item?.body ?? "") : bodyImageURLs
         let images = urls.compactMap { bodyImageCache.get($0) }
         guard !images.isEmpty else { return }
-        bodyImages = images
-        bodyImageIndex = min(tappedIndex, images.count - 1)
-        showBodyViewer = true
+        ViewerWindowManager.shared.openImageViewer(images: images, startIndex: tappedIndex)
     }
     
     private static func extractImageURLs(from text: String) -> [String] {
