@@ -45,9 +45,6 @@ struct ContentView: View {
             SidebarView(selectedNav: $selectedNav, previousNav: $previousNav)
         } detail: {
             VStack(spacing: 0) {
-                if case .item = selectedNav {
-                    backButton
-                }
                 if case .folder = selectedNav {
                     backButton
                 }

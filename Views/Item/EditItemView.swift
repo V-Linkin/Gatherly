@@ -24,9 +24,7 @@ struct EditItemView: View {
     @State private var showDiscardConfirm = false
     
     // Image viewer
-    @State private var editImages: [NSImage] = []
-    @State private var editImageIndex: Int = 0
-    @State private var showEditViewer = false
+    // 图片查看器已使用 ViewerWindowManager
     
     init(item: Item, isPresented: Binding<Bool>) {
         self.item = item
@@ -205,6 +203,12 @@ struct EditItemView: View {
                                     .padding(8)
                                     .background(Color.secondary.opacity(0.05))
                                     .clipShape(RoundedRectangle(cornerRadius: 6))
+                                    .onTapGesture {
+                                        if let path = asset.localPath {
+                                            let url = DataDirectory.media.appendingPathComponent(path)
+                                            ViewerWindowManager.shared.openVideoViewer(url: url)
+                                        }
+                                    }
                                 }
                                 ForEach(Array(newVideoURLs.enumerated()), id: \.offset) { index, url in
                                     HStack {
@@ -245,9 +249,7 @@ struct EditItemView: View {
         }
         .frame(width: 600, height: 500)
         .onAppear { loadMedia() }
-        .sheet(isPresented: $showEditViewer) {
-            ImageViewerView(images: editImages, currentIndex: $editImageIndex, isPresented: $showEditViewer)
-        }
+        // 使用独立窗口查看器，与详情页一致
         .alert("放弃修改？", isPresented: $showDiscardConfirm) {
             Button("继续编辑", role: .cancel) {}
             Button("放弃修改", role: .destructive) {
@@ -276,9 +278,7 @@ struct EditItemView: View {
         }
         
         guard !loadedImages.isEmpty else { return }
-        editImages = loadedImages
-        editImageIndex = tappedIndex
-        showEditViewer = true
+        ViewerWindowManager.shared.openImageViewer(images: loadedImages, startIndex: tappedIndex)
     }
     
     private func loadMedia() {

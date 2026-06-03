@@ -58,7 +58,7 @@ struct SettingsView: View {
             Button("取消", role: .cancel) { showRestoreConfirm = false }
             Button("还原", role: .destructive) { performRestore() }
         } message: {
-            Text("还原将覆盖当前所有数据。\n\n建议先导出当前数据作为备份。\n\n还原后需要重新启动应用。")
+            Text("还原将合并备份数据到当前数据中（不会覆盖已有内容）。\n\n还原后需要重新启动应用。")
         }
         .alert("还原完成", isPresented: $showRestoreComplete) {
             Button("确定") {}
@@ -107,7 +107,7 @@ struct SettingsView: View {
             }
             VStack(alignment: .leading, spacing: 8) {
                 HStack { Label("还原数据", systemImage: "externaldrive.badge.xmark"); Spacer(); if isRestoring { ProgressView().scaleEffect(0.6) } }
-                Text("从备份 zip 文件还原数据，当前数据将被覆盖").font(.caption).foregroundStyle(.secondary)
+                Text("从备份 zip 文件还原数据，将合并新增到当前数据中").font(.caption).foregroundStyle(.secondary)
                 HStack(spacing: 8) {
                     Button { chooseBackupFile() } label: { Label("选择备份文件", systemImage: "doc.badge.plus") }
                         .buttonStyle(.bordered).controlSize(.small).disabled(isBackingUp || isRestoring)
