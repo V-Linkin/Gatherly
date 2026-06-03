@@ -255,7 +255,7 @@ final class UpdateChecker: NSObject {
     }
     
     private func extractVersionFromAtom(_ xml: String) -> String? {
-        let pattern = "<title>v([0-9]+\\.[0-9]+\\.[0-9]+)</title>"
+        let pattern = "<title>[^<]*v([0-9]+\\.[0-9]+\\.[0-9]+)</title>"
         guard let regex = try? NSRegularExpression(pattern: pattern),
               let match = regex.firstMatch(in: xml, range: NSRange(xml.startIndex..., in: xml)),
               let range = Range(match.range(at: 1), in: xml) else { return nil }
