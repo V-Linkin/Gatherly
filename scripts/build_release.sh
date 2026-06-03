@@ -55,6 +55,12 @@ if [ ! -d "$APP_PATH" ]; then
 fi
 echo "  ✅ 构建成功: $APP_PATH"
 
+# ---------- 2.5. Ad-hoc 签名 ----------
+echo ""
+echo "[2.5/6] 签名 App..."
+codesign --force --deep --sign - "$APP_PATH"
+echo "  ✅ 签名完成"
+
 # ---------- 3. 创建 DMG 临时目录 ----------
 echo ""
 echo "[3/6] 打包 DMG..."
@@ -63,8 +69,8 @@ DMG_OUTPUT="$PROJECT_DIR/build/${DMG_NAME}"
 rm -rf "$DMG_TEMP" "$DMG_OUTPUT"
 mkdir -p "$DMG_TEMP"
 
-# 复制 App
-cp -R "$APP_PATH" "$DMG_TEMP/"
+# 复制 App（重命名为中文名）
+cp -R "$APP_PATH" "$DMG_TEMP/${APP_DISPLAY_NAME}.app"
 
 # 创建 Applications 快捷方式
 ln -s /Applications "$DMG_TEMP/Applications"
