@@ -85,6 +85,7 @@ docs/                   产品规格 + 设计文档
 
 - **使用帮助**: 设置页「关于」区块包含「使用帮助」和「GitHub」链接（同一行）。点击使用帮助弹出 `HelpView` sheet，内容分 6 个可展开/收缩的区块（快速入门、支持平台、内容整理、媒体导出、备份还原、常见问题），每个条目默认折叠，点击展开。
 - **自动更新**: `UpdateChecker` 通过 GitHub API 检查新版本，下载 DMG 到临时目录，挂载后用 `install_update.sh`（Resources/）脚本 ditto 替换 `/Applications` 中的旧版本并重启。app 不在 `/Applications` 时回退为打开 DMG 让用户手动安装。设置页显示下载进度条，完成后弹窗确认安装。启动时检查是否存在已下载但未安装的 DMG。`UpdateStatus` 枚举包含 `.downloading(progress:)` 和 `.downloaded(dmgPath:version:)` 两个额外状态。
+- **数据目录迁移**: `chooseDirectory()` 切换目录时自动迁移旧数据（数据库、媒体文件、平台 Logo）到新目录。在设置 UserDefaults 之前先获取旧路径，然后用 `FileManager.copyItem` 复制（仅在新目录不存在对应文件时才复制，避免覆盖已有内容）。
 
 ## 已知问题（待修复）
 
