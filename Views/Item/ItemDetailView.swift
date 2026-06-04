@@ -36,7 +36,7 @@ struct ItemDetailView: View {
         }
         .navigationTitle(item?.displayTitle ?? "详情")
         .navigationBarBackButtonHidden(true)
-        .sheet(isPresented: $isEditing) {
+                .sheet(isPresented: $isEditing) {
             if let item = item {
                 EditItemView(item: item, isPresented: $isEditing)
             }
@@ -109,85 +109,83 @@ struct ItemDetailView: View {
         }
     }
     
-    private func detailContent(_ item: Item) -> some View {
-        return ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                // 操作按钮
-                HStack(spacing: 8) {
-                    Button {
-                        if let prev = previousNav {
-                            selectedNav = prev
-                        } else {
-                            selectedNav = .none
-                        }
-                    } label: {
-                        Label("返回", systemImage: "chevron.left")
+        private func detailContent(_ item: Item) -> some View {
+        return VStack(spacing: 0) {
+            // 操作按钮（固定在顶部）
+            HStack(spacing: 8) {
+                Button {
+                    if let prev = previousNav {
+                        selectedNav = prev
+                    } else {
+                        selectedNav = .none
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    
-                    Divider().frame(height: 20)
-                    
-                    Button {
-                        isEditing = true
-                    } label: {
-                        Label("编辑", systemImage: "pencil")
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .help("编辑内容信息")
-                    
-                    Button { showMoveSheet = true } label: {
-                        Label("移动", systemImage: "folder")
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .help("移动到其他文件夹")
-                    
-                    Button {
-                        if bodyImageURLs.isEmpty {
-                            let count = MediaExporter.exportBatch(
-                                assets: mediaAssets,
-                                item: item,
-                                from: appState
-                            )
-                            if count > 0 {
-                                appState.showToast("成功导出 \\(count) 个文件")
-                            }
-                        } else {
-                            showExportPicker = true
-                        }
-                    } label: {
-                        Label("导出", systemImage: "square.and.arrow.down")
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .disabled(mediaAssets.isEmpty && bodyImageURLs.isEmpty)
-                    .help("导出媒体文件到本地")
-                    
-                    Button { showDeleteConfirm = true } label: {
-                        Label("删除", systemImage: "trash")
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .foregroundStyle(.red)
-                    .help("移入回收站")
+                } label: {
+                    Label("返回", systemImage: "chevron.left")
                 }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
                 
-                mediaSection(item)
-                Divider()
-                metadataSection(item)
-                Divider()
-                remarkSection(item)
-                Divider()
-                bodySection(item)
+                Divider().frame(height: 20)
+                
+                Button { isEditing = true } label: {
+                    Label("编辑", systemImage: "pencil")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .help("编辑内容信息")
+                
+                Button { showMoveSheet = true } label: {
+                    Label("移动", systemImage: "folder")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .help("移动到其他文件夹")
+                
+                Button {
+                    let currentItem = item
+                    if bodyImageURLs.isEmpty {
+                        let count = MediaExporter.exportBatch(assets: mediaAssets, item: currentItem, from: appState)
+                        if count > 0 { appState.showToast("成功导出 \(count) 个文件") }
+                    } else {
+                        showExportPicker = true
+                    }
+                } label: {
+                    Label("导出", systemImage: "square.and.arrow.down")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(mediaAssets.isEmpty && bodyImageURLs.isEmpty)
+                .help("导出媒体文件到本地")
+                
+                Button { showDeleteConfirm = true } label: {
+                    Label("删除", systemImage: "trash")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .foregroundStyle(.red)
+                .help("移入回收站")
             }
-            .padding(.horizontal, 24)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    mediaSection(item)
+                    Divider()
+                    metadataSection(item)
+                    Divider()
+                    remarkSection(item)
+                    Divider()
+                    bodySection(item)
+                }
+                .padding(.horizontal, 24)
                 .padding(.top, 4)
                 .padding(.bottom, 24)
+            }
         }
     }
-    
+
     private func mediaSection(_ item: Item) -> some View {
         Group {
             if mediaAssets.isEmpty {

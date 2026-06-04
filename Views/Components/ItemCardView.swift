@@ -72,6 +72,7 @@ struct ItemCardView: View {
         .padding(8)
         .background(.background)
         .frame(width: Self.cardWidth)
+        .contentShape(RoundedRectangle(cornerRadius: 12))
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .overlay(
             RoundedRectangle(cornerRadius: 12)

@@ -37,6 +37,7 @@ struct ContentView: View {
     @State private var coverImages: [NSImage] = []
     @State private var coverImageIndex: Int = 0
     @State private var showCoverViewer: Bool = false
+
     
     var body: some View {
         @Bindable var state = appState

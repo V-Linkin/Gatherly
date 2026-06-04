@@ -29,6 +29,19 @@ final class ViewerWindowManager {
         let window = createWindow(size: savedSize, content: content)
         windows.append(window)
         window.makeKeyAndOrderFront(self)
+        
+        // ESC 键关闭
+        let monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            if event.keyCode == 53 {
+                window.close()
+                return nil
+            }
+            return event
+        }
+        // 窗口关闭时移除监听
+        NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { _ in
+            if let monitor = monitor { NSEvent.removeMonitor(monitor) }
+        }
     }
     
     // MARK: - Video Viewer
