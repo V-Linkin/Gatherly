@@ -401,7 +401,7 @@ struct ItemDetailView: View {
         ViewerWindowManager.shared.openImageViewer(images: images, startIndex: tappedIndex)
     }
     
-    static func extractImageURLs(from text: String) -> [String] {
+    private static func extractImageURLs(from text: String) -> [String] {
         let pattern = #"!\[[^\]]*\]\(([^)]*)\)"#
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
         let nsText = text as NSString

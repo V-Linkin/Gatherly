@@ -45,9 +45,7 @@ struct ContentView: View {
             SidebarView(selectedNav: $selectedNav, previousNav: $previousNav)
         } detail: {
             VStack(spacing: 0) {
-                if case .item(let itemID) = selectedNav {
-                    itemToolbar(itemID: itemID)
-                } else if case .folder = selectedNav {
+                if case .folder = selectedNav {
                     backButton
                 }
                 detailView
@@ -112,27 +110,6 @@ struct ContentView: View {
         .sheet(item: $state.changeLogoCustomPlatform) { cp in
             ChangeLogoSheet(platform: cp)
         }
-        .sheet(isPresented: $showEditSheet) {
-            if let itemID = editingItemID,
-               let item = (try? appState.itemRepo.fetchAll())?.first(where: { $0.id == itemID }) {
-                EditItemView(item: item, isPresented: $showEditSheet)
-            }
-        }
-        .sheet(isPresented: $showMoveSheet) {
-            if let itemID = movingItemID {
-                MoveToFolderSheet(itemID: itemID, isPresented: $showMoveSheet)
-            }
-        }
-        .alert("移入回收站", isPresented: $showDeleteConfirm) {
-            Button("取消", role: .cancel) {}
-            Button("删除", role: .destructive) {
-                if let itemID = deleteItemID {
-                    deleteItem(itemID: itemID)
-                }
-            }
-        } message: {
-            Text("确定将此内容移入回收站？")
-        }
         .alert("删除平台", isPresented: .init(
             get: { state.deletingCustomPlatform != nil },
             set: { if !$0 { state.deletingCustomPlatform = nil } }
@@ -159,131 +136,6 @@ struct ContentView: View {
         } message: {
             Text("确定删除平台「\(state.deletingCustomPlatform?.name ?? "")」？平台下的内容不会被删除，但会失去平台分类。")
         }
-    }
-    
-    @State private var editingItemID: UUID?
-    @State private var showEditSheet = false
-    @State private var movingItemID: UUID?
-    @State private var showMoveSheet = false
-    @State private var deleteItemID: UUID?
-    @State private var showDeleteConfirm = false
-    
-    private func itemToolbar(itemID: UUID) -> some View {
-        HStack(spacing: 12) {
-            Button {
-                let target = previousNav ?? .home
-                previousNav = nil
-                selectedNav = target
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 16, weight: .medium))
-                    Text("返回")
-                        .font(.body)
-                }
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
-                .background(.ultraThinMaterial)
-                .clipShape(Capsule())
-            }
-            .buttonStyle(.plain)
-            
-            Button {
-                editingItemID = itemID
-                showEditSheet = true
-            } label: {
-                Image(systemName: "pencil")
-                    .font(.system(size: 20))
-            }
-            .buttonStyle(.bordered)
-            .help("编辑笔记")
-            
-            Button {
-                movingItemID = itemID
-                showMoveSheet = true
-            } label: {
-                Image(systemName: "folder")
-                    .font(.system(size: 20))
-            }
-            .buttonStyle(.bordered)
-            .help("移动到文件夹")
-            
-            Button {
-                exportMedia(itemID: itemID)
-            } label: {
-                Image(systemName: "square.and.arrow.down")
-                    .font(.system(size: 20))
-            }
-            .buttonStyle(.bordered)
-            .help("导出媒体文件")
-            
-            Button {
-                deleteItemID = itemID
-                showDeleteConfirm = true
-            } label: {
-                Image(systemName: "trash")
-                    .font(.system(size: 20))
-            }
-            .buttonStyle(.bordered)
-            .foregroundStyle(.red)
-            .help("删除笔记")
-            
-            Spacer()
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .frame(maxWidth: .infinity)
-        .background(.background)
-    }
-    
-    private func exportMedia(itemID: UUID) {
-        guard let item = (try? appState.itemRepo.fetchAll())?.first(where: { $0.id == itemID }) else { return }
-        let mediaAssets = (try? appState.mediaRepo.findByItemID(itemID)) ?? []
-        let bodyImageURLs = ItemDetailView.extractImageURLs(from: item.body ?? "")
-        
-        if mediaAssets.isEmpty && bodyImageURLs.isEmpty {
-            appState.showToast("没有可导出的媒体文件")
-            return
-        }
-        
-        if !mediaAssets.isEmpty {
-            let count = MediaExporter.exportBatch(assets: mediaAssets, item: item, from: appState)
-            if count > 0 {
-                appState.showToast("成功导出 \(count) 个文件")
-            }
-        } else if !bodyImageURLs.isEmpty {
-            let count = MediaExporter.exportBodyImages(
-                imageURLs: bodyImageURLs,
-                imageCache: ImageCache(),
-                item: item,
-                from: appState
-            )
-            if count > 0 {
-                appState.showToast("成功导出 \(count) 个文件")
-            }
-        }
-    }
-    
-    private func deleteItem(itemID: UUID) {
-        guard var item = (try? appState.itemRepo.fetchAll())?.first(where: { $0.id == itemID }) else { return }
-        item.deletedAt = Date()
-        item.contentStatus = .trashed
-        try? appState.itemRepo.update(item)
-        
-        let mediaAssets = (try? appState.mediaRepo.findByItemID(itemID)) ?? []
-        let mediaPaths = mediaAssets.compactMap { $0.localPath }
-        let record = TrashRecord(
-            itemID: item.id,
-            originalFolderID: item.folderID,
-            originalArchiveStatus: item.archiveStatus,
-            mediaPaths: mediaPaths
-        )
-        try? appState.trashRepo.insert(record)
-        
-        appState.refreshData()
-        selectedNav = previousNav ?? .home
-        appState.showToast("已移入回收站")
     }
     
     private var backButton: some View {
